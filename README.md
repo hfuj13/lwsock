@@ -1,0 +1,74 @@
+LWSOCKCC
+* lwsockcc is a Library for WebSocket (RFC6455) writen by C++.
+* L: a Library, WSOCK: WebSocket, CC: C++ source code suffix.
+* API is like traditional TCP client / server. (connect, bind, listen, accept, send, recv)
+* IPv6 ready
+* not depend on other libraries. (futuer may be depend on openssl or libressl etc)
+* You must control about multiple IO, thread etc by yourself.
+* lwsockcc doesn't management status (CONNECTING, OPEN, CLOSING, CLOSED etc). You must do it yourself.
+
+Require:
+* C++14 or later
+* Linux
+* Exception (-fexceptions etc.)
+* Little Endian
+
+Tester building:
+* tar xf googletest-release-1.8.0.tar.gz
+* cd test
+* ln -s ../googletest-release-1.8.0/googletest/include ./
+* ln -s ../googletest-release-1.8.0/googletest/src ./
+* mkdir build
+* cd build
+* cmake ../
+* make
+
+NOTE:
+* not supported TSL yet.
+* Default supported opening handshake headers are Host, Upgrade, Connection, Sec-WebSocket-Key and Sec-WebSocket-Accept.
+* If you want use other heaers, then use API send_req(const headers_t&)/send_res(const headers_t&) or send_req_manually(const handshake_t&)/send_res_manually(const handshake_t&).
+* If you use lwsockcc on Android NDK, then you should set -fexceptions and unset -Wexit-time-destructors.
+
+For example:
+```
+server:
+  using namespace std;
+  using namespace lwsockcc;
+  WebSocket s(WebSocket::Mode::SERVER);
+  //s.ostream4log(cout);
+  s.bind("ws://hostname:22000");
+  //s.bind("ws://0.0.0.0:22000"); // IPv4 any address
+  //s.bind("ws://[::]:22000"); // IPv6 only any address
+  //s.bind("ws://[::].0.0.0.0:22000"); // IPv4 and IPv6 any address
+  s.listen(5);
+  WebSocket nws = std::move(s.accept()); // blocking, return new WebSocket object
+  auto hs = nws.recv_req(); // returned handshake data
+  nws.send_res();
+  string msg = "d e f";
+  nws.send_msg_txt(msg);
+  auto rcvd = nws.recv_msg_txt();
+  cout << rcvd << endl;
+  sleep(2);
+  nws.send_close(1000);
+
+client:
+  using namespace std;
+  using namespace lwsockcc;
+  WebSocket c(WebSocket::Mode::CLIENT);
+  //c.ostream4log(cout);
+  c.connect("ws://hostname:22000");
+  c.send_req();
+  auto hs = c.recv_res(); // returned handshake data
+  string msg = "a b c";
+  c.send_msg_txt(msg);
+  auto rcvd = ws.recv_msg_txt();
+  cout << rcvd << endl;
+
+```
+
+TODO:
+* Readjust errors.
+* Organizing logs.
+* Organizing codes.
+* Revise sample.
+* Correspond to TLS.
