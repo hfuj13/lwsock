@@ -34,6 +34,17 @@ For example:
 server:
   using namespace std;
   using namespace lwsockcc;
+  void worker(WebSocket&& nws)
+  {
+    auto hs = nws.recv_req(); // returned handshake data
+    nws.send_res();
+    string msg = "d e f";
+    nws.send_msg_txt(msg);
+    auto rcvd = nws.recv_msg_txt();
+    cout << rcvd << endl;
+    nws.send_close(1000);
+  }
+
   WebSocket s(WebSocket::Mode::SERVER);
   //s.ostream4log(cout);
   s.bind("ws://hostname:22000");
@@ -41,15 +52,15 @@ server:
   //s.bind("ws://[::]:22000"); // IPv6 only any address
   //s.bind("ws://[::].0.0.0.0:22000"); // IPv4 and IPv6 any address
   s.listen(5);
-  WebSocket nws = std::move(s.accept()); // blocking, return new WebSocket object
-  auto hs = nws.recv_req(); // returned handshake data
-  nws.send_res();
-  string msg = "d e f";
-  nws.send_msg_txt(msg);
-  auto rcvd = nws.recv_msg_txt();
-  cout << rcvd << endl;
-  sleep(2);
-  nws.send_close(1000);
+  vector<thread> th_set;
+  for (int i = 0; i < 3; ++i) {
+    WebSocket nws = s.accept(); // blocking, return new WebSocket object
+    auto th = thread(worker, move(nws));
+    th_set.push_back(move(th));
+  }
+  for (auto& th : th_set) {
+    th.join();
+  }
 
 client:
   using namespace std;

@@ -6,6 +6,18 @@ using namespace lwsockcc;
 
 // WebSocket Server Test Program.
 
+void worker(WebSocket&& ws)
+{
+  ws.recv_req();
+  ws.send_res();
+  string msg1 = "d e f";
+  ws.send_msg_txt(msg1);
+  auto rcvd = ws.recv_msg_txt();
+  cout << "rcvd #[" << rcvd.first << "]#" << endl;
+  ws.send_close(1000);
+  sleep(10);
+}
+
 int main(int argc, char* argv[])
 {
   WebSocket ws(WebSocket::Mode::SERVER);
@@ -13,18 +25,17 @@ int main(int argc, char* argv[])
 
   ws.bind("ws://localhost:22000");
   ws.listen(5);
+  vector<thread> th_set;
+  const int max = 3;
+  for (int i = 0; i < max; ++i) {
+    cout << "\n\n\n" << endl;
+    WebSocket nws = ws.accept();
+    auto th = thread(worker, move(nws));
+    th_set.push_back(move(th));
+  }
+  for (auto& th : th_set) {
+    th.join();
+  }
 
-
-  WebSocket nws = ws.accept();
-  nws.recv_req();
-  nws.send_res();
-
-  string msg1 = "d e f";
-  nws.send_msg_txt(msg1);
-  auto rcvd = nws.recv_msg_txt();
-  cout << "rcvd #[" << rcvd.first << "]#" << endl;
-
-  nws.send_close(1000);
-
-  sleep(2);
+  return 0;
 }
