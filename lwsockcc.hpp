@@ -42,13 +42,14 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <random>
 #include <sstream>
 #include <string>
 #include <system_error>
+#include <thread>
 #include <tuple>
 #include <type_traits>
 #include <vector>
-#include <random>
 
 namespace lwsockcc {
 
@@ -229,7 +230,7 @@ public:
   std::ostream& operator()(Level lvl)
   {
     if (lvl >= level_)
-    { return (*this) << now_timestamp() << ' '; }
+    { return (*this) << now_timestamp() << "[thd:" << std::this_thread::get_id() << "] "; }
     else {
       static std::ostream ost(nullptr);
       return ost;
