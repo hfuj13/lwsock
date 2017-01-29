@@ -2244,6 +2244,26 @@ public:
     return ws;
   }
 
+  /// @brief accept socket
+  ///
+  /// @param [out] remote: stored remote Sockaddr
+  /// @retval new WebSocket instance
+  /// @exception Exception
+  WebSocket accept(Sockaddr remote)
+  {
+    WebSocket nws = accept(); // newer Websocket instance
+    remote = nws.remote_;
+    return nws;
+  }
+
+  /// @brief get remote Sockaddr
+  ///
+  /// @retval remote Sockaddr
+  Sockaddr remote()
+  {
+    return remote_;
+  }
+
   /// @brief receive opening handshake request with timeout
   ///
   /// @param [in] timeout: Timespec instance
