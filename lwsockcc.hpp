@@ -1161,7 +1161,7 @@ func_end:
 class AHead final {
 public:
   AHead() = default;
-  explicit AHead(uint16_t data)
+  explicit AHead(uint16_t data) // data is network byte order
   : data_(data) { }
   AHead(const AHead&) = default;
   AHead(AHead&&) = default;
@@ -1290,7 +1290,7 @@ public:
   /// @retval opcode value
   Opcode opcode()
   {
-    return static_cast<Opcode>(data_ & 0x0007);
+    return static_cast<Opcode>(data_ & 0x000f);
   }
 
   /// @brief set mask bit
@@ -2704,7 +2704,7 @@ private:
         close_socket(sfd_);
         return result;
       }
-      log_(Log::Level::TRACE) << "    ]] receive a part of header...result:\n    fin=" << ahead.fin() << ", rsv1=" << ahead.rsv1() << ", rsv2=" << ahead.rsv2() << ", rsv3=" << ahead.rsv3() << ", opcode=0x" << std::hex << std::setw(2) << std::setfill('0') << as_int(ahead.opcode()) << ", payload_len=" << ahead.payload_len() << std::dec << std::endl;
+      log_(Log::Level::TRACE) << "    ]] receive a part of header...result:\n    raw=0x" << std::hex << std::setw(4) << std::setfill('0') << ahead.data() << std::dec << ", fin=" << ahead.fin() << ", rsv1=" << ahead.rsv1() << ", rsv2=" << ahead.rsv2() << ", rsv3=" << ahead.rsv3() << ", opcode=0x" << std::hex << std::setw(2) << std::setfill('0') << as_int(ahead.opcode()) << ", payload_len=" << ahead.payload_len() << std::dec << std::endl;
 
       if (ahead.opcode() == Opcode::TEXT) {
         txtflg = true;
@@ -2781,6 +2781,7 @@ private:
       else {
         payload_data = std::move(tmp_recved);
       }
+
       switch (ahead.opcode()) {
       case Opcode::CONTINUE:
       case Opcode::TEXT: 
@@ -2956,6 +2957,10 @@ private:
   /// @exception Exception
   ssize_t recv_with_timeout(int sfd, void* buff, size_t buffsz, const Timespec& timeout)
   {
+    std::ostringstream callee;
+    callee << "WebSocket::recv_with_timeout(sfd=" << sfd << ", buff=" << std::hex << buff << std::dec << ", buffsz=" << buffsz << ", timeout=" << timeout.to_string() << ')';
+    ScopedLog slog(callee.str());
+
     fd_set rfd;
     FD_ZERO(&rfd);
     FD_SET(sfd, &rfd);
@@ -2972,9 +2977,11 @@ private:
     if (result == -1) {
       int err = errno;
       std::ostringstream oss;
-      oss << "::recv() result=" << ret << ", error=" << err << ". " << strerror(err);
+      oss << "::recv() error=" << err << ". " << strerror(err);
       throw Exception(Error(err, __LINE__, oss));
     }
+
+    slog.clear() << "WebSocket::recv_with_timeout() result=" << result;
     return result;
   }
 
@@ -2992,7 +2999,7 @@ private:
     assert(sfd != -1);
 
     std::ostringstream callee;
-    callee << "WebSocket::recv_fill(sfd=" << sfd << ", buff=" << std::hex << buff << ", expect_sz=" << std::dec << expect_sz << ", timeout=" << timeout.to_string() << ')';
+    callee << "WebSocket::recv_fill(sfd=" << sfd << ", buff=" << std::hex << buff << std::dec << ", expect_sz=" << expect_sz << ", timeout=" << timeout.to_string() << ')';
     ScopedLog slog(callee.str());
 
     uint8_t* ptr = static_cast<uint8_t*>(buff);
@@ -3026,7 +3033,7 @@ private:
 
     ret = recved_sz == expect_sz ? recved_sz : ret;
 
-    slog.clear() << callee << " result=" << ret;
+    slog.clear() << "WebSocket::recv_fill() result=" << ret;
     return ret;
   }
 
