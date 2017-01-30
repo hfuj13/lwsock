@@ -2668,7 +2668,7 @@ private:
       oss << header.first << ": " << header.second << EOL;
     }
     oss << EOL;
-    log_(Log::Level::TRACE) << "\"" << oss.str() << "\" size=" << oss.str().size() << std::endl;
+    log_(Log::Level::TRACE) << "\"" << oss.str() << "\" size=" << std::dec << oss.str().size() << std::endl;
 
     size_t ret = send_fill(sfd_, oss.str().c_str(), oss.str().size());
     assert(ret == oss.str().size());
@@ -2689,7 +2689,7 @@ private:
     assert(timeout >= -1);
 
     std::ostringstream callee;
-    callee << "WebSocket::recv_msg(std::pair<>& result, timeout=" << timeout.to_string() << ')';
+    callee << "WebSocket::recv_msg(timeout=" << timeout.to_string() << ')';
     ScopedLog slog(callee.str());
 
     std::pair<T, int32_t> result{{}, 0};
@@ -2704,7 +2704,12 @@ private:
         close_socket(sfd_);
         return result;
       }
-      log_(Log::Level::TRACE) << "    ]] receive a part of header...result:\n    raw=0x" << std::hex << std::setw(4) << std::setfill('0') << ahead.data() << std::dec << ", fin=" << ahead.fin() << ", rsv1=" << ahead.rsv1() << ", rsv2=" << ahead.rsv2() << ", rsv3=" << ahead.rsv3() << ", opcode=0x" << std::hex << std::setw(2) << std::setfill('0') << as_int(ahead.opcode()) << ", payload_len=" << ahead.payload_len() << std::dec << std::endl;
+      log_(Log::Level::TRACE) << "    ]] receive a part of header...result:\n"
+        << "    raw=0x" << std::hex << std::setw(4) << std::setfill('0') << ahead.data() << std::dec
+        << ", fin=" << ahead.fin() << ", rsv1=" << ahead.rsv1() << ", rsv2=" << ahead.rsv2() << ", rsv3=" << ahead.rsv3()
+        << ", opcode=0x" << std::hex << std::setw(2) << std::setfill('0') << as_int(ahead.opcode()) << std::setw(0) << std::dec
+        << ", payload_len=" << ahead.payload_len() << std::endl
+        ;
 
       if (ahead.opcode() == Opcode::TEXT) {
         txtflg = true;
@@ -2756,10 +2761,10 @@ private:
       log_(Log::Level::TRACE) << "    finally payload len=" << payload_len << std::endl;
 
       if ((mode_ == Mode::SERVER && ahead.mask() == 0) || (mode_ == Mode::CLIENT && ahead.mask() == 1)) {
+        std::ostringstream oss;
+        oss << callee.str() << "received invalid maskbit=" << ahead.mask() << ", then send CLOSE 1002 frame, then close socket=" << sfd_;
         send_close(1002);
         close_socket(sfd_);
-        std::ostringstream oss;
-        oss << callee.str() << "received invalid maskbit=" << ahead.mask() << ", and then sent CLOSE 1002 frame, and then close socket=" << sfd_;
         throw Exception(Error(EBADMSG, __LINE__, oss));
       }
 
@@ -2790,7 +2795,7 @@ private:
 
       case Opcode::PING:
         {
-          log_(Log::Level::INFO) << "received Ping frame. app_data_sz=" << payload_data.size() << std::endl;
+          log_(Log::Level::INFO) << "received Ping frame. app_data_sz=" << payload_data.size() << ", then send PONG" << std::endl;
           send_pong(payload_data);
         }
         continue;
@@ -2803,13 +2808,13 @@ private:
             uint16_t be_scode = 0; // big endian status code
             ::memcpy(&be_scode, payload_data.data(), sizeof be_scode);
             uint16_t scode = ntohs(be_scode); // status code
-            log_(Log::Level::INFO) << "received Close frame. status_code=" << scode << std::endl;
+            log_(Log::Level::INFO) << "received CLOSE frame, status_code=" << scode << ", then send CLOSE" << std::endl;
             result.first.clear();
             result.second = scode;
             send_close(scode, "", timeout);
           }
           else {
-            log_(Log::Level::INFO) << "received Close frame. status_code is none." << std::endl;
+            log_(Log::Level::INFO) << "received CLOSE frame, status_code is none," << ", then send CLOSE" << std::endl;
             result.first.clear();
             result.second = 1005;
             send_close(timeout);
@@ -2848,7 +2853,7 @@ private:
     assert(opcode == Opcode::TEXT || opcode == Opcode::BINARY || opcode == Opcode::CLOSE || opcode == Opcode::PING);
 
     std::ostringstream callee;
-    callee << "WebSocket::send_msg(opcode=0x" << std::hex << std::setw(2) << std::setfill('0') << as_int(opcode) << ", payload_data_org=" << payload_data_org << ", payload_data_sz=" << std::dec << payload_data_sz << ')';
+    callee << "WebSocket::send_msg(opcode=0x" << std::hex << std::setw(2) << std::setfill('0') << as_int(opcode) << std::setw(0) << ", payload_data_org=" << payload_data_org << ", payload_data_sz=" << std::dec << payload_data_sz << ')';
     ScopedLog slog(callee.str());
 
     AHead ahead;
@@ -2958,7 +2963,7 @@ private:
   ssize_t recv_with_timeout(int sfd, void* buff, size_t buffsz, const Timespec& timeout)
   {
     std::ostringstream callee;
-    callee << "WebSocket::recv_with_timeout(sfd=" << sfd << ", buff=" << std::hex << buff << std::dec << ", buffsz=" << buffsz << ", timeout=" << timeout.to_string() << ')';
+    callee << "WebSocket::recv_with_timeout(sfd=" << sfd << ", buff=" << std::hex << buff << ", buffsz=" << std::dec << buffsz << ", timeout=" << timeout.to_string() << ')';
     ScopedLog slog(callee.str());
 
     fd_set rfd;
@@ -2981,7 +2986,7 @@ private:
       throw Exception(Error(err, __LINE__, oss));
     }
 
-    slog.clear() << "WebSocket::recv_with_timeout() result=" << result;
+    slog.clear() << "WebSocket::recv_with_timeout(sfd=" << sfd << ", ...) result=" << result;
     return result;
   }
 
@@ -2999,7 +3004,7 @@ private:
     assert(sfd != -1);
 
     std::ostringstream callee;
-    callee << "WebSocket::recv_fill(sfd=" << sfd << ", buff=" << std::hex << buff << std::dec << ", expect_sz=" << expect_sz << ", timeout=" << timeout.to_string() << ')';
+    callee << "WebSocket::recv_fill(sfd=" << sfd << ", buff=" << std::hex << buff << ", expect_sz=" << std::dec << expect_sz << ", timeout=" << timeout.to_string() << ')';
     ScopedLog slog(callee.str());
 
     uint8_t* ptr = static_cast<uint8_t*>(buff);
@@ -3033,7 +3038,7 @@ private:
 
     ret = recved_sz == expect_sz ? recved_sz : ret;
 
-    slog.clear() << "WebSocket::recv_fill() result=" << ret;
+    slog.clear() << "WebSocket::recv_fill(sfd=" << sfd << ", ...) result=" << ret;
     return ret;
   }
 
@@ -3062,13 +3067,7 @@ private:
       if (ret == 0) {
         int err = SOCKET_CLOSED;
         std::ostringstream oss;
-        oss << callee.str() << " recv(sfd=" << sfd << ") return=0, socket was closed from the remote.";
-        throw Exception(Error(err, __LINE__, oss));
-      }
-      else if (ret < 0) {
-        int err = errno;
-        std::ostringstream oss;
-        oss << callee.str() << " recv(sfd=" << sfd << ") error=" << err << ". " << strerror(err);
+        oss << callee.str() << " socket was closed from the remote.";
         throw Exception(Error(err, __LINE__, oss));
       }
       recved_msg += tmp;
@@ -3097,7 +3096,7 @@ private:
   void send_close(const Timespec& timeout)
   {
     std::ostringstream callee;
-    callee << "WebSocket::send_close()";
+    callee << "WebSocket::send_close(timeout=" << timeout.to_string() << ')';
     ScopedLog slog(callee.str());
     send_msg(Opcode::CLOSE, nullptr, 0);
     close_websocket(sfd_, timeout);
