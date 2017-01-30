@@ -1,6 +1,6 @@
-// Copyright (C) 2016 hfuj13@gmail.com
+// The MIT License (MIT)
 //
-// licensed under the MIT license.
+// Copyright (C) 2016 hfuj13@gmail.com
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -2615,7 +2615,7 @@ private:
 
   /// @brief close sockfd
   ///
-  /// @param [in] sfd: sockfd
+  /// @param [in out] sfd: sockfd
   void close_socket(int& sfd)
   {
     if (sfd != -1) {
@@ -2634,7 +2634,7 @@ private:
 
   /// @brief close websocket with timeout. refered RFC6455 7.1.1.
   ///
-  /// @param [in] sfd: sockfd
+  /// @param [in out] sfd: sockfd
   /// @param [in] timeout: Timespec instance
   void close_websocket(int& sfd, const Timespec& timeout)
   {
