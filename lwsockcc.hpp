@@ -2700,7 +2700,7 @@ private:
       ssize_t ret = recv_fill(sfd_, ahead.data_ptr(), ahead.size(), timeout);
       if (ret == 0) { // socket is closed.
         result.first.clear();
-        result.second = 1006;
+        result.second = 1006; // RFC6455 7.1.5. "The WebSocket Connection Close Code is considered to be 1006."
         close_socket(sfd_);
         return result;
       }
@@ -2804,20 +2804,37 @@ private:
         continue;
       case Opcode::CLOSE:
         {
+          uint16_t scode = 0; // status code;
+          std::string reason;
           if (payload_data.size() > 0) {
             uint16_t be_scode = 0; // big endian status code
             ::memcpy(&be_scode, payload_data.data(), sizeof be_scode);
-            uint16_t scode = ntohs(be_scode); // status code
-            log_(Log::Level::INFO) << "received CLOSE frame, status_code=" << scode << ", then send CLOSE" << std::endl;
+            scode = ntohs(be_scode); // status code
+            log_(Log::Level::INFO) << "received CLOSE frame from the remote, status_code=" << scode << ", then send CLOSE" << std::endl;
             result.first.clear();
             result.second = scode;
-            send_close(scode, "", timeout);
           }
           else {
-            log_(Log::Level::INFO) << "received CLOSE frame, status_code is none," << ", then send CLOSE" << std::endl;
+            log_(Log::Level::INFO) << "received CLOSE frame from the remote, status_code is none," << ", then send CLOSE" << std::endl;
             result.first.clear();
             result.second = 1005;
-            send_close(timeout);
+            reason = "RFC6455 7.1.5. \"If this Close control frame contains no status code, The WebSocket Connection Close Code is considered to be 1005.\"";
+          }
+          try {
+            if (scode != 0) {
+              send_close(scode, reason, timeout);
+            }
+            else {
+              send_close(timeout);
+            }
+          }
+          catch (Exception& e) {
+            if (e.code() == EBADF || e.code() == EPIPE) {
+              ; // nop. socket is closed already
+            }
+            else {
+              throw e;
+            }
           }
           close_socket(sfd_);
         }
@@ -2832,8 +2849,8 @@ private:
       std::copy(std::begin(payload_data), std::end(payload_data), std::back_inserter(result.first));
     } while (ahead.fin() == 0 && ahead.opcode() != Opcode::CLOSE);
 
-    // TODO
     if (txtflg) {
+      // TODO
       // Check if result is UTF-8 data.
     }
 
@@ -2929,6 +2946,10 @@ private:
   /// @exception Exception
   ssize_t send_fill(int sfd, const void* buff, const size_t buffsz)
   {
+    std::ostringstream callee;
+    callee << "WebSocket::send_fill(sfd=" << sfd << ", buff=" << std::hex << buff << ", buffsz=" << std::dec << buffsz << ')';
+    ScopedLog slog(callee.str());
+
     const uint8_t* ptr = static_cast<const uint8_t*>(buff);
     size_t sent_sz = 0;
 
@@ -3428,7 +3449,6 @@ private:
     }
     return masked_data;
   }
-
 
   Log& log_ = Log::get_instance();
   Mode mode_ = Mode::NONE;
