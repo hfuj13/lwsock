@@ -19,6 +19,7 @@ add_executable(
   first_line_parse_test.cc
   is_numerichost_test.cc
   split_host_port_test.cc
+  version_test.cc
 )
 target_link_libraries(testest pthread)
 
