@@ -53,7 +53,7 @@
 
 namespace lwsockcc {
 
-constexpr char Version[] = "v1.2.1";
+constexpr char Version[] = "v1.2.3";
 
 /// @brief lwsockcc error code
 ///
