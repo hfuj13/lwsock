@@ -2251,7 +2251,7 @@ public:
   /// @param [out] remote: stored remote Sockaddr
   /// @retval new WebSocket instance
   /// @exception Exception
-  WebSocket accept(Sockaddr remote)
+  WebSocket accept(Sockaddr& remote)
   {
     WebSocket nws = accept(); // newer Websocket instance
     remote = nws.remote_;
