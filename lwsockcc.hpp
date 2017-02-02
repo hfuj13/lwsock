@@ -2570,7 +2570,7 @@ public:
   {
     int sfd = sfd_;
     init();
-    return std::move(sfd);
+    return sfd;
   }
 
   /// @brief set ostream for log. output log to the ostream
