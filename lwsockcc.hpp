@@ -53,7 +53,7 @@
 
 namespace lwsockcc {
 
-constexpr char Version[] = "v1.2.4";
+constexpr char Version[] = "v1.2.5";
 
 /// @brief lwsockcc error code
 ///
@@ -2549,7 +2549,7 @@ public:
   /// @retval query
   std::string origin()
   {
-    return "not supported yet";
+    return origin_;
   }
 
 
