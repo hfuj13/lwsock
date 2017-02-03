@@ -1489,7 +1489,7 @@ public:
   /// @brief get a pointer for struct timespec instance
   ///
   /// @retval a pointer for struct timespec instance
-  struct timespec* ptr() const
+  const struct timespec* ptr() const
   {
     return tm_.get();
   }
