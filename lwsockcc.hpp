@@ -1685,7 +1685,7 @@ public:
       int sfd = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
       if (sfd < 0) {
         int err = errno;
-        log_(Log::Level::WARNING) << "::socket(" << res->ai_family << ", " << res->ai_socktype << ", " << res->ai_protocol << ") error=" << err << ". " << strerror(err) << "\n    Try next." << std::endl;
+        log_(Log::Level::WARNING) << "::socket(" << res->ai_family << ", " << res->ai_socktype << ", " << res->ai_protocol << ") error=" << err << ". " << strerror(err) << ". Try next." << std::endl;
         continue;
       }
       log_(Log::Level::TRACE) << "::socket() opened sfd=" << sfd << std::endl;
@@ -1741,10 +1741,10 @@ public:
               }
               Sockaddr saddr(res->ai_addr, res->ai_addrlen);
               if (ret == 0) {
-                log_(Log::Level::WARNING) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") is closed from the server.    Try next" << std::endl;
+                log_(Log::Level::WARNING) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") is closed from the server. Try next" << std::endl;
               }
               else {
-                log_(Log::Level::WARNING) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ".    Try next" << std::endl;
+                log_(Log::Level::WARNING) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". Try next" << std::endl;
               }
               close_socket(sfd);
               continue;
@@ -1763,7 +1763,7 @@ public:
         else {
           close_socket(sfd);
           Sockaddr saddr(res->ai_addr, res->ai_addrlen);
-          log_(Log::Level::WARNING) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". closed socket.    Try next." << std::endl;
+          log_(Log::Level::WARNING) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". closed socket. Try next." << std::endl;
 
         }
       }
@@ -2100,7 +2100,7 @@ public:
       int sfd = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
       if (sfd < 0) {
         int err = errno;
-        log_(Log::Level::WARNING) << "::socket(" << res->ai_family << ", " << res->ai_socktype << ", " << res->ai_protocol << ") error=" << err << ". " << strerror(err) << "    Try next." << std::endl;
+        log_(Log::Level::WARNING) << "::socket(" << res->ai_family << ", " << res->ai_socktype << ", " << res->ai_protocol << ") error=" << err << ". " << strerror(err) << ". Try next." << std::endl;
         continue;
       }
       log_(Log::Level::TRACE) << "::socket() sfd=" << sfd << std::endl;
@@ -2119,8 +2119,8 @@ public:
       ret = ::bind(sfd, res->ai_addr, res->ai_addrlen);
       if (ret < 0) {
         int err = errno;
+        log_(Log::Level::WARNING) << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". closed socket. Try next." << std::endl;
         close_socket(sfd);
-        log_(Log::Level::WARNING) << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". closed socket.    Try next." << std::endl;
         continue;
       }
       log_(Log::Level::TRACE) << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ')' << std::endl;
@@ -2698,7 +2698,7 @@ private:
     AHead ahead;
     bool txtflg = false;
     do {
-      log_(Log::Level::TRACE) << "    [[ receive a part of header ..." << std::endl;
+      log_(Log::Level::TRACE) << "  [[ receive a part of header ..." << std::endl;
       ssize_t ret = recv_fill(sfd_, ahead.data_ptr(), ahead.size(), timeout);
       if (ret == 0) { // socket is closed.
         result.first.clear();
@@ -2706,10 +2706,11 @@ private:
         close_socket(sfd_);
         return result;
       }
-      log_(Log::Level::TRACE) << "    ]] receive a part of header...result:\n"
-        << "    raw=0x" << std::hex << std::setw(4) << std::setfill('0') << ahead.data() << std::dec
+      log_(Log::Level::TRACE) << "  ]] receive a part of header...result="
+        << " raw=0x" << std::hex << std::setw(4) << std::setfill('0') << ahead.data() << std::dec
         << ", fin=" << ahead.fin() << ", rsv1=" << ahead.rsv1() << ", rsv2=" << ahead.rsv2() << ", rsv3=" << ahead.rsv3()
         << ", opcode=0x" << std::hex << std::setw(2) << std::setfill('0') << as_int(ahead.opcode()) << std::setw(0) << std::dec
+        << ", mask=" << ahead.mask()
         << ", payload_len=" << ahead.payload_len() << std::endl
         ;
 
@@ -2760,7 +2761,7 @@ private:
         payload_len = ahead.payload_len();
         break;
       }
-      log_(Log::Level::TRACE) << "    finally payload len=" << payload_len << std::endl;
+      log_(Log::Level::TRACE) << "  eventually payload len=" << payload_len << std::endl;
 
       if ((mode_ == Mode::SERVER && ahead.mask() == 0) || (mode_ == Mode::CLIENT && ahead.mask() == 1)) {
         std::ostringstream oss;
@@ -2772,13 +2773,15 @@ private:
 
       uint32_t masking_key = 0;
       if (ahead.mask()) {
+        log_(Log::Level::TRACE) << "  [[ receive masking key..." << std::endl;
         ret = recv_fill(sfd_, &masking_key, sizeof masking_key, timeout);
         // TODO ret == 0 case
+        log_(Log::Level::TRACE) << "  ]] receive masking key...raw=0x" << std::hex << std::setw(8) << std::setfill('0') << masking_key << std::endl;
       }
 
       // receive payload data
       std::vector<uint8_t> tmp_recved(payload_len);
-      ret = recv_fill(sfd_, &tmp_recved[0], payload_len, timeout);
+      ret = recv_fill(sfd_, &tmp_recved[0], tmp_recved.size(), timeout);
       // TODO ret == 0 case
 
       std::vector<uint8_t> payload_data;
@@ -2812,7 +2815,7 @@ private:
             uint16_t be_scode = 0; // big endian status code
             ::memcpy(&be_scode, payload_data.data(), sizeof be_scode);
             scode = ntohs(be_scode); // status code
-            log_(Log::Level::INFO) << "received CLOSE frame from the remote, status_code=" << scode << ", then send CLOSE" << std::endl;
+            log_(Log::Level::INFO) << "received CLOSE frame from the remote, status_code=" << std::dec << scode << ", then send CLOSE" << std::endl;
             result.first.clear();
             result.second = scode;
           }
@@ -2971,6 +2974,8 @@ private:
       struct timespec ts{0, 1};
       nanosleep(&ts, nullptr);
     }
+
+    slog.clear() << "WebSocket::send_fill(sfd=" << sfd << ", ...) result=" << sent_sz;
     return sent_sz;
   }
 
@@ -3108,7 +3113,8 @@ private:
       std::copy(std::begin(recved_msg) + pos + eohsz, std::end(recved_msg), std::back_inserter(recved_rest_buff_));
     }
 
-    slog.clear() << "WebSocket::recv_until_eoh() result=\n\"" + result + "\"";
+    log_(Log::Level::TRACE) << result << std::endl;
+
     return result;
   }
 
@@ -3246,7 +3252,7 @@ private:
     std::ostringstream callee;
     callee << "WebSocket::check_request_headers(\n";
     for (auto& e : hv_lines) {
-      callee << "    " << e.first << ": " << e.second << '\n';
+      callee << "    \"" << e.first << "\": \"" << e.second << "\"\n";
     }
     callee << ')';
     ScopedLog slog(callee.str());
