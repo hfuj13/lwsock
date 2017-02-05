@@ -1,7 +1,7 @@
 #include <iostream>
 
 #include "gtest/gtest.h"
-#include "lwsockcc.hpp"
+#include "lwsock.hpp"
 
 using namespace std;
 

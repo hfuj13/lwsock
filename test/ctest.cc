@@ -2,12 +2,12 @@
 #include <unistd.h>
 #include <iostream>
 #include <sstream>
-#include "lwsockcc.hpp"
+#include "lwsock.hpp"
 
 // WebSocket Client Test Program.
 
 using namespace std;
-using namespace lwsockcc;
+using namespace lwsock;
 
 int main()
 {

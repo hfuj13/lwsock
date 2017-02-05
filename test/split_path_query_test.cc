@@ -1,9 +1,9 @@
 #include "gtest/gtest.h"
 
-#include "lwsockcc.hpp"
+#include "lwsock.hpp"
 
 using namespace std;
-using namespace lwsockcc;
+using namespace lwsock;
 
 TEST(SPLIT_PATH_QUERY, split_path_query)
 {

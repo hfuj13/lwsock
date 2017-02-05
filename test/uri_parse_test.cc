@@ -1,9 +1,9 @@
 #include "gtest/gtest.h"
 
-#include "lwsockcc.hpp"
+#include "lwsock.hpp"
 
 using namespace std;
-using namespace lwsockcc;
+using namespace lwsock;
 
 TEST(URI_PARSE, split_hostport_pathquery)
 {

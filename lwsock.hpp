@@ -51,11 +51,11 @@
 #include <type_traits>
 #include <vector>
 
-namespace lwsockcc {
+namespace lwsock {
 
 constexpr char Version[] = "v1.2.5";
 
-/// @brief lwsockcc error code
+/// @brief lwsock error code
 ///
 /// negative value. (positive value is system error)
 /// @todo readjust errorcode
@@ -404,7 +404,7 @@ public:
 
   /// @brief get error code
   ///
-  /// @retval error code. errno(3), getaddrinfo(3), regex(3), lwsockcc Errcode.
+  /// @retval error code. errno(3), getaddrinfo(3), regex(3), lwsock Errcode.
   int code()
   {
     return errcode_;
@@ -3472,4 +3472,4 @@ private:
   Sockaddr remote_;
 };
 
-} // namespace lwsockcc
+} // namespace lwsock

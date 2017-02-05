@@ -1,11 +1,11 @@
-LWSOCKCC
-* lwsockcc is a Library for WebSocket (RFC6455) writen by C++.
-* L: a Library, WSOCK: WebSocket, CC: C++ source code suffix.
+LWSOCK
+* lwsock is a Library for WebSocket (RFC6455) writen by C++.
+* L: a Library, WSOCK: WebSocket
 * API is like traditional TCP client / server. (connect, bind, listen, accept, send, recv)
 * IPv6 ready
 * not depend on other libraries. (futuer may be depend on openssl or libressl etc)
 * You must control about multiple IO, thread etc by yourself.
-* lwsockcc doesn't management status (CONNECTING, OPEN, CLOSING, CLOSED etc). You must do it yourself.
+* lwsock doesn't management status (CONNECTING, OPEN, CLOSING, CLOSED etc). You must do it yourself.
 
 Require:
 * C++14 or later
@@ -27,13 +27,13 @@ NOTE:
 * not supported TSL yet.
 * Default supported opening handshake headers are Host, Upgrade, Connection, Sec-WebSocket-Key and Sec-WebSocket-Accept.
 * If you want use other heaers, then use API send_req(const headers_t&)/send_res(const headers_t&) or send_req_manually(const handshake_t&)/send_res_manually(const handshake_t&).
-* If you use lwsockcc on Android NDK, then you should set -fexceptions and unset -Wexit-time-destructors.
+* If you use lwsock on Android NDK, then you should set -fexceptions and unset -Wexit-time-destructors.
 
 For example:
 ```
 server:
   using namespace std;
-  using namespace lwsockcc;
+  using namespace lwsock;
   void worker(WebSocket&& nws)
   {
     auto hs = nws.recv_req(); // returned handshake data
@@ -64,7 +64,7 @@ server:
 
 client:
   using namespace std;
-  using namespace lwsockcc;
+  using namespace lwsock;
   WebSocket c(WebSocket::Mode::CLIENT);
   //c.ostream4log(cout);
   c.connect("ws://hostname:22000");

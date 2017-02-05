@@ -1,8 +1,8 @@
 #include <thread>
-#include "lwsockcc.hpp"
+#include "lwsock.hpp"
 
 using namespace std;
-using namespace lwsockcc;
+using namespace lwsock;
 
 // WebSocket Server Test Program.
 
