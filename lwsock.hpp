@@ -59,8 +59,9 @@ constexpr char Version[] = "v1.2.5";
 ///
 /// negative value. (positive value is system error)
 /// @todo readjust errorcode
-enum Errcode {
-  DECODE_ERROR = -101,
+enum class lwsock_errc: int {
+  NO_ERROR = 0,
+  DECODE_ERROR = -1,
   COULD_NOT_OPEN_AVAILABLE_SOCKET = -102,
   SOCKET_CLOSED = -103,
   INVALID_HANDSHAKE = -104,
@@ -69,6 +70,47 @@ enum Errcode {
   INVALID_AF = -108,
   INVALID_MODE = -109,
 };
+
+class lwsock_category: public std::error_category {
+public:
+  const char* name() const noexcept override
+  {
+    return "lwsock";
+  }
+  std::string message(int err) const override
+  {
+    switch (static_cast<lwsock_errc>(err)) {
+    case lwsock_errc::DECODE_ERROR:
+      return "DECODE_ERROR";
+    case lwsock_errc::COULD_NOT_OPEN_AVAILABLE_SOCKET:
+      return "COULD_NOT_OPEN_AVAILABLE_SOCKET";
+    case lwsock_errc::SOCKET_CLOSED:
+      return "SOCKET_CLOSED";
+    case lwsock_errc::INVALID_HANDSHAKE:
+      return "INVALID_HANDSHAKE";
+    case lwsock_errc::FRAME_ERROR:
+      return "FRAME_ERROR";
+    case lwsock_errc::INVALID_PARAM:
+      return "INVALID_PARAM";
+    case lwsock_errc::INVALID_AF:
+      return "INVALID_AF";
+    case lwsock_errc::INVALID_MODE:
+      return "INVALID_MODE";
+    default:
+      return "UNKNOWN";
+    }
+  }
+  std::error_condition default_error_condition(int err) const noexcept override
+  {
+    return std::error_condition(err, lwsock_category());
+  }
+};
+// factory function
+inline const std::error_category& lwsock_category() noexcept
+{
+  static class lwsock_category category;
+  return category;
+}
 
 class getaddrinfo_category: public std::error_category {
 public:
@@ -599,21 +641,21 @@ inline std::vector<uint8_t> b64decode(const std::string& src_data)
   std::vector<uint8_t> dst;
 
   // token_decode function
-  auto token_decode = [](const char* token, int32_t& result) -> uint32_t {
+  auto token_decode = [](const char* token, lwsock_errc& result) -> uint32_t {
     uint32_t val = 0;
     int marker = 0;
 
     if (::strlen(token) < 4) {
-      result = DECODE_ERROR;
-      return DECODE_ERROR;
+      result = lwsock_errc::DECODE_ERROR;
+      return as_int(result);
     }
     for (int i = 0; i < 4; i++) {
       val *= 64;
       if (token[i] == '=') {
         marker++;
       } else if (marker > 0) {
-        result = DECODE_ERROR;
-        return DECODE_ERROR;
+        result = lwsock_errc::DECODE_ERROR;
+        return as_int(result);
       } else {
           int idx = -1;
           for (const char* p = B64chs ;*p != '\n'; ++p) {
@@ -627,21 +669,21 @@ inline std::vector<uint8_t> b64decode(const std::string& src_data)
       }
     }
     if (marker > 2) {
-      result = DECODE_ERROR;
-      return DECODE_ERROR;
+      result = lwsock_errc::DECODE_ERROR;
+      return as_int(result);
     }
-    result = 0;
+    result = lwsock_errc::NO_ERROR;
     return (marker << 24) | val;
   };
 
   uint32_t marker = 0;
   for (const char* p = src_data.c_str(); *p != '\0'; p += 4) {
-    int32_t result = 0;
+    lwsock_errc result = lwsock_errc::NO_ERROR;
     uint32_t val = token_decode(p, result);
-    if (result == DECODE_ERROR) {
+    if (result == lwsock_errc::DECODE_ERROR) {
       std::ostringstream oss;
       oss << "b64decode(" << src_data << ") decode error.";
-      throw Exception(Error(DECODE_ERROR, oss));
+      throw Exception(Error(as_int(lwsock_errc::DECODE_ERROR), oss));
     }
     marker = (val >> 24) & 0xff;
     dst.push_back((val >> 16) & 0xff);
@@ -960,7 +1002,7 @@ inline std::pair<std::string, std::string> split_hostport_pathquery(const std::s
     hostport_pathquery.first = result[1];
     break;
   default:
-    { int err = INVALID_PARAM;
+    { int err = as_int(lwsock_errc::INVALID_PARAM);
       std::ostringstream oss;
       oss << "    error=" << err << ". invalid uri";
       throw Exception(Error(err, __LINE__, oss.str()));
@@ -1004,7 +1046,7 @@ inline std::pair<std::string, std::string> split_path_query(const std::string& p
     path_query.first = result[1][0] != '/' ? "/" + result[1] : result[1];
     break;
   default:
-    { int err = INVALID_PARAM;
+    { int err = as_int(lwsock_errc::INVALID_PARAM);
       std::ostringstream oss;
       oss << "    error=" << err << ". invalid path_query";
       throw Exception(Error(err, __LINE__, oss.str()));
@@ -1047,7 +1089,7 @@ inline std::pair<std::string, std::string> split_host_port(const std::string& ho
       break;
     default:
       {
-        int err = INVALID_PARAM;
+        int err = as_int(lwsock_errc::INVALID_PARAM);
         std::ostringstream oss;
         oss << callee.str() << "    error=" << err << ". invalid host_port";
         throw Exception(Error(err, __LINE__, oss.str()));
@@ -1075,7 +1117,7 @@ inline std::pair<std::string, std::string> split_host_port(const std::string& ho
           break;
         default:
           {
-            int err = INVALID_PARAM;
+            int err = as_int(lwsock_errc::INVALID_PARAM);
             std::ostringstream oss;
             oss << callee.str() << "    error=" << err << ". invalid host_port";
             throw Exception(Error(err, __LINE__, oss.str()));
@@ -1131,7 +1173,7 @@ inline std::pair<std::string, std::string> split_host_port(const std::string& ho
           break;
         default:
           {
-            int err = INVALID_PARAM;
+            int err = as_int(lwsock_errc::INVALID_PARAM);
             std::ostringstream oss;
             oss << callee.str() << "    error=" << err << ". invalid host_port";
             throw Exception(Error(err, __LINE__, oss.str()));
@@ -1158,7 +1200,7 @@ inline std::pair<std::string, std::string> split_host_port(const std::string& ho
           break;
         default:
           {
-            int err = INVALID_PARAM;
+            int err = as_int(lwsock_errc::INVALID_PARAM);
             std::ostringstream oss;
             oss << callee.str() << "    error=" << err << ". invalid host_port";
             throw Exception(Error(err, __LINE__, oss.str()));
@@ -1406,7 +1448,7 @@ public:
     if (sizeof uaddr_.storage < static_cast<size_t>(addrlen)) {
       std::ostringstream oss;
       oss << "Sockaddr(saddr=" << std::hex << saddr << ", addrlen=" << std::dec << addrlen << ") addrlen is too big. [addrlen <= sizeof(struct sockaddr_storage)]";
-      throw Exception(Error(INVALID_PARAM, __LINE__, oss));
+      throw Exception(Error(as_int(lwsock_errc::INVALID_PARAM), __LINE__, oss));
     }
     ::memcpy(&uaddr_.storage, saddr, addrlen);
   }
@@ -1448,7 +1490,7 @@ public:
       break;
     default:
       {
-        int err = INVALID_AF;
+        int err = as_int(lwsock_errc::INVALID_AF);
         std::ostringstream oss;
         oss << "Sockaddr::ip()" << "    error=" << err << ". sockaddr::sa_family=" << af2str(uaddr_.saddr.sa_family);
         Exception(Error(err, __LINE__, oss));
@@ -1503,7 +1545,7 @@ public:
       tm_ = std::make_unique<struct timespec>(timespec{msec / 1000, msec % 1000 * 1000000});
     }
     else {
-      throw Exception(Error(INVALID_PARAM, __LINE__, ""));
+      throw Exception(Error(as_int(lwsock_errc::INVALID_PARAM), __LINE__, ""));
     }
   }
   bool operator==(int32_t msec) const
@@ -1676,7 +1718,7 @@ public:
       host_port = split_host_port(hostport_pathquery.first);
     }
     catch (Exception& e) {
-      int err = INVALID_PARAM;
+      int err = as_int(lwsock_errc::INVALID_PARAM);
       std::ostringstream oss;
       oss << callee.str() << "    error=" << err << ". invalid uri";
       throw Exception(Error(err, __LINE__, oss));
@@ -1693,13 +1735,13 @@ public:
       port_ = host_port.second.empty() ? 80 : std::stoi(host_port.second);
     }
     catch (std::invalid_argument& e) {
-      int err = INVALID_PARAM;
+      int err = as_int(lwsock_errc::INVALID_PARAM);
       std::ostringstream oss;
       oss << callee.str() << "    error=" << err << ". invalid port number=" << host_port.second;
       throw Exception(Error(err, __LINE__, oss));
     }
     if (port_ > 65535) {
-      int err = INVALID_PARAM;
+      int err = as_int(lwsock_errc::INVALID_PARAM);
       std::ostringstream oss;
       oss << callee.str() << "    error=" << err << ". invalid port number=" << host_port.second;
       throw Exception(Error(err, __LINE__, oss));
@@ -1819,7 +1861,7 @@ public:
     freeaddrinfo(res);
 
     if (available_sfd == -1) {
-      int err = COULD_NOT_OPEN_AVAILABLE_SOCKET;
+      int err = as_int(lwsock_errc::COULD_NOT_OPEN_AVAILABLE_SOCKET);
       std::ostringstream oss;
       oss << callee.str() << " COULD_NOT_OPEN_AVAILABLE_SOCKET";
       throw Exception(Error(err, __LINE__, oss));
@@ -1933,7 +1975,7 @@ public:
       std::ostringstream oss;
       oss << "INVALID_HANDSHAKE first_line=\"" << handshake_data.first << "\". close socket=" << sfd_;
       close_socket(sfd_); // 10.7 when the endpoint sees an opening handshake that does not correspond to the values it is expecting, the endpoint MAY drop the TCP connection.
-      throw Exception(Error(INVALID_HANDSHAKE, __LINE__, oss.str()));
+      throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
     }
     int32_t status_code = std::stoi(tmp[1]);
     if (status_code != 101) {
@@ -1948,7 +1990,7 @@ public:
       oss << e.what() << ". send CLOSE frame and close socket=" << sfd_;
       send_close(1002);
       close_socket(sfd_); // 10.7 when the endpoint sees an opening handshake that does not correspond to the values it is expecting, the endpoint MAY drop the TCP connection.
-      throw Exception(Error(INVALID_HANDSHAKE, oss));
+      throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), oss));
     }
 
     return std::pair<handshake_t, int32_t>(handshake_data, status_code);
@@ -2062,21 +2104,21 @@ public:
     ScopedLog slog(callee.str());
 
     if (mode_ != Mode::SERVER) {
-      int err = INVALID_MODE;
+      int err = as_int(lwsock_errc::INVALID_MODE);
       std::ostringstream oss;
       oss << callee.str() << "    error=" << err << ". invalid mode. expect Mode::SERVER, actual Mode::CLIENT";
       throw Exception(Error(err, __LINE__, oss));
     }
 
     if (uri.empty()) {
-      int err = INVALID_PARAM;
+      int err = as_int(lwsock_errc::INVALID_PARAM);
       std::ostringstream oss;
       oss << callee.str() << "    error=" << err << ". invalid uri";
       throw Exception(Error(err, __LINE__, oss));
     }
 
     if (af != AF_UNSPEC && af != AF_INET && af != AF_INET6) {
-      int err = INVALID_PARAM;
+      int err = as_int(lwsock_errc::INVALID_PARAM);
       std::ostringstream oss;
       oss << callee.str() << "    error=" << err << ". invalid af=" << af2str(af);
       throw Exception(Error(err, __LINE__, oss));
@@ -2092,7 +2134,7 @@ public:
       host_port = split_host_port(hostport_pathquery.first);
     }
     catch (Exception& e) {
-      int err = INVALID_PARAM;
+      int err = as_int(lwsock_errc::INVALID_PARAM);
       std::ostringstream oss;
       oss << callee.str() << "    error=" << err << ". invalid uri";
       throw Exception(Error(err, __LINE__, oss));
@@ -2108,13 +2150,13 @@ public:
       port_ = host_port.second.empty() ? 80 : std::stoi(host_port.second);
     }
     catch (std::invalid_argument& e) {
-      int err = INVALID_PARAM;
+      int err = as_int(lwsock_errc::INVALID_PARAM);
       std::ostringstream oss;
       oss << callee.str() << "    error=" << err << ". invalid port number=" << host_port.second;
       throw Exception(Error(err, __LINE__, oss));
     }
     if (port_ > 65535) {
-      int err = INVALID_PARAM;
+      int err = as_int(lwsock_errc::INVALID_PARAM);
       std::ostringstream oss;
       oss << callee.str() << "    error=" << err << ". invalid port number=" << host_port.second;
       throw Exception(Error(err, __LINE__, oss));
@@ -2179,7 +2221,7 @@ public:
     freeaddrinfo(res);
 
     if (bind_sfds_.empty()) {
-      int err = COULD_NOT_OPEN_AVAILABLE_SOCKET;
+      int err = as_int(lwsock_errc::COULD_NOT_OPEN_AVAILABLE_SOCKET);
       std::ostringstream oss;
       oss << callee.str() << " error=COULD_NOT_OPEN_AVAILABLE_SOCKET could not bind() any sockets.";
       throw Exception(Error(err, __LINE__, oss));
@@ -2346,7 +2388,7 @@ public:
       handshake.first = "HTTP/1.1 400 Bad Request";
       send_res_manually(handshake);
       close_socket(sfd_); // 10.7 when the endpoint sees an opening handshake that does not correspond to the values it is expecting, the endpoint MAY drop the TCP connection.
-      throw Exception(Error(INVALID_HANDSHAKE, __LINE__, oss));
+      throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss));
     }
 
     CRegex regex(R"(^GET +((/[^? ]*)(\?[^ ]*)?)? *HTTP/1\.1)", 20);
@@ -2358,7 +2400,7 @@ public:
       handshake.first = "HTTP/1.1 400 Bad Request";
       send_res_manually(handshake);
       close_socket(sfd_); // 10.7 when the endpoint sees an opening handshake that does not correspond to the values it is expecting, the endpoint MAY drop the TCP connection.
-      throw Exception(Error(INVALID_HANDSHAKE, __LINE__, oss));
+      throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss));
     }
 
     // if the request path differ expecting path, then respond 404.
@@ -2370,7 +2412,7 @@ public:
       handshake.first = "HTTP/1.1 400 Bad Request";
       send_res_manually(handshake);
       close_socket(sfd_); // 10.7 when the endpoint sees an opening handshake that does not correspond to the values it is expecting, the endpoint MAY drop the TCP connection.
-      throw Exception(Error(INVALID_HANDSHAKE, __LINE__, oss));
+      throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss));
     }
 
     auto ite4origin = std::find_if(std::begin(handshake_data.second), std::end(handshake_data.second), [](std::pair<std::string, std::string>& headervalue){
@@ -2771,7 +2813,7 @@ private:
         txtflg = true;
       }
       if (ahead.rsv1() != 0 || ahead.rsv2() != 0 || ahead.rsv3() != 0) {
-        int err = FRAME_ERROR;
+        int err = as_int(lwsock_errc::FRAME_ERROR);
         std::ostringstream oss;
         oss << callee.str() << "error=FRAME_ERROR, rsv1=" << ahead.rsv1() << ", rsv2=" << ahead.rsv2() << ", rsv3=" << ahead.rsv3();
         log_(Log::Level::WARNING) << oss.str() << std::endl;
@@ -3155,7 +3197,7 @@ private:
       char tmp[512] = {0};
       ssize_t ret = recv_with_timeout(sfd, tmp, (sizeof tmp) -1, timeout); // -1 is that tmp[] has at least '\0'.
       if (ret == 0) {
-        int err = SOCKET_CLOSED;
+        int err = as_int(lwsock_errc::SOCKET_CLOSED);
         std::ostringstream oss;
         oss << callee.str() << " socket was closed from the remote.";
         throw Exception(Error(err, __LINE__, oss));
@@ -3248,12 +3290,12 @@ private:
       if (ite == std::end(hv_lines)) {
         std::ostringstream oss;
         oss << "    \"" << header_name << "\" header is not found.";
-        throw Exception(Error(INVALID_HANDSHAKE, __LINE__, oss.str()));
+        throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
       if (str2lower(ite->second) != "websocket") {
         std::ostringstream oss;
         oss << "    \"" << header_name << ": " << ite->second << "\" dose not include \"websocket\".";
-        throw Exception(Error(INVALID_HANDSHAKE, __LINE__, oss.str()));
+        throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
     }
 
@@ -3269,14 +3311,14 @@ private:
       if (ite == std::end(hv_lines)) {
         std::ostringstream oss;
         oss << "    \"" << header_name << "\" header is not found.";
-        throw Exception(Error(INVALID_HANDSHAKE, __LINE__, oss.str()));
+        throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
       std::string str = str2lower(ite->second);
       std::string token = str2lower("Upgrade");
       if (str.find(token) == std::string::npos) {
         std::ostringstream oss;
         oss << "    \"" << header_name << ": " << ite->second << "\" dose not include \"Upgrade\".";
-        throw Exception(Error(INVALID_HANDSHAKE, __LINE__, oss.str()));
+        throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
     }
 
@@ -3292,13 +3334,13 @@ private:
       if (ite == std::end(hv_lines)) {
         std::ostringstream oss;
         oss << "    \"" << header_name << "\" header is not found.";
-        throw Exception(Error(INVALID_HANDSHAKE, __LINE__, oss.str()));
+        throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
       std::string key = make_key(nonce_, GUID);
       if (ite->second != key) {
         std::ostringstream oss;
         oss << "    invalid \"Sec-WebSocket-Accept: " << ite->second << '\"';
-        throw Exception(Error(INVALID_HANDSHAKE, __LINE__, oss.str()));
+        throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
     }
 
@@ -3331,7 +3373,7 @@ private:
       if (ite == std::end(hv_lines)) {
         std::ostringstream oss;
         oss << "    \"Host\" header is not found.";
-        throw Exception(Error(INVALID_HANDSHAKE, __LINE__, oss.str()));
+        throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
     }
 
@@ -3346,7 +3388,7 @@ private:
       if (values.empty()) {
         std::ostringstream oss;
         oss << "    \"Upgrade\" header is not found.";
-        throw Exception(Error(INVALID_HANDSHAKE, __LINE__, oss.str()));
+        throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
       auto ite = std::find_if(std::begin(values), std::end(values), [](const std::string& value){
         auto str = str2lower(value);
@@ -3360,7 +3402,7 @@ private:
       if (ite == std::end(values)) {
         std::ostringstream oss;
         oss << "    \"Upgrade\" header does not have the value of \"websocket\".";
-        throw Exception(Error(INVALID_HANDSHAKE, __LINE__, oss.str()));
+        throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
       
     }
@@ -3376,7 +3418,7 @@ private:
       if (values.empty()) {
         std::ostringstream oss;
         oss << "    \"Connection\" header is not found.";
-        throw Exception(Error(INVALID_HANDSHAKE, __LINE__, oss.str()));
+        throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
       auto ite = std::find_if(std::begin(values), std::end(values), [](const std::string& value){
         std::string str = str2lower(value);
@@ -3391,7 +3433,7 @@ private:
       if (ite == std::end(values)) {
         std::ostringstream oss;
         oss << "    \"Connection\" header does not include the value of \"Upgrade\".";
-        throw Exception(Error(INVALID_HANDSHAKE, __LINE__, oss.str()));
+        throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
     }
 
@@ -3408,11 +3450,11 @@ private:
       if (sec_websocket_key_line == std::end(hv_lines)) {
         std::ostringstream oss;
         oss << "    \"Sec-WebSocket-Key\" header is not found.";
-        throw Exception(Error(INVALID_HANDSHAKE, __LINE__, oss.str()));
+        throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
       std::vector<uint8_t> value = b64decode(sec_websocket_key_line->second);
       if (value.size() != 16) {
-        throw Exception(Error(INVALID_HANDSHAKE,  "\"Sec-WebSocket-Key\" header is invalid size: " + std::to_string(value.size())));
+        throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE),  "\"Sec-WebSocket-Key\" header is invalid size: " + std::to_string(value.size())));
       }
       nonce_ = sec_websocket_key_line->second;
     }
@@ -3428,7 +3470,7 @@ private:
       if (values.empty()) {
         std::ostringstream oss;
         oss << "    \"Sec-WebSocket-Version\" header is not found.";
-        throw Exception(Error(INVALID_HANDSHAKE, __LINE__, oss.str()));
+        throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
       auto ite = std::find_if(std::begin(values), std::end(values), [](const std::string& value){
         std::string str = str2lower(value);
@@ -3443,7 +3485,7 @@ private:
       if (ite == std::end(values)) {
         std::ostringstream oss;
         oss << "    \"Sec-WebSocket-Version\" header does not include \"13\".";
-        throw Exception(Error(INVALID_HANDSHAKE, __LINE__, oss.str()));
+        throw Exception(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
     }
 
@@ -3489,7 +3531,7 @@ private:
     using size_type = std::string::size_type;
     size_type pos = handshake_msg.find(EOL);
     if (pos == std::string::npos) {
-      int err = INVALID_HANDSHAKE;
+      int err = as_int(lwsock_errc::INVALID_HANDSHAKE);
       std::ostringstream oss;
       oss << "invliad handshake=\"" << handshake_msg << '\"';
       throw Exception(Error(err, oss));
