@@ -60,16 +60,60 @@ constexpr char Version[] = "v1.2.5";
 /// negative value. (positive value is system error)
 /// @todo readjust errorcode
 enum Errcode {
-  DECODE_ERROR = -1,
-  COULD_NOT_OPEN_AVAILABLE_SOCKET = -2,
-  SOCKET_CLOSED = -3,
-  INVALID_HANDSHAKE = -4,
-  NOT_SUPPORTED_RESPONSE = -5,
-  FRAME_ERROR = -6,
-  INVALID_PARAM = -7,
-  INVALID_AF = -8,
-  INVALID_MODE = -9,
+  DECODE_ERROR = -101,
+  COULD_NOT_OPEN_AVAILABLE_SOCKET = -102,
+  SOCKET_CLOSED = -103,
+  INVALID_HANDSHAKE = -104,
+  FRAME_ERROR = -106,
+  INVALID_PARAM = -107,
+  INVALID_AF = -108,
+  INVALID_MODE = -109,
 };
+
+class getaddrinfo_category: public std::error_category {
+public:
+  const char* name() const noexcept override
+  {
+    return "getaddrinfo";
+  }
+  std::string message(int err) const override
+  {
+    std::string msg(gai_strerror(err));
+    return msg;
+  }
+  std::error_condition default_error_condition(int err) const noexcept override
+  {
+    return std::error_condition(err, getaddrinfo_category());
+  }
+};
+// factory function
+inline const std::error_category& getaddrinfo_category() noexcept
+{
+  static class getaddrinfo_category category;
+  return category;
+}
+
+class regex_category: public std::error_category {
+public:
+  explicit regex_category(const std::string& msg)
+  : msg_(msg) {}
+  const char* name() const noexcept override
+  {
+    return "regex";
+  }
+  std::string message(int err) const override
+  {
+    return msg_;
+  }
+private:
+  std::string msg_;
+};
+// factory function
+inline const std::error_category& regex_category(const std::string& msg) noexcept
+{
+  static class regex_category category(msg);
+  return category;
+}
 
 /// @brief get emum class value as int
 ///
@@ -471,8 +515,9 @@ public:
       std::ostringstream oss;
       char errbuf[256] = {0};
       regerror(err, &regbuff_, errbuf, sizeof errbuf);
-      oss << "CRegex(re=\"" << re << "\", nmatch=" << nmatch << ") regcomp() error=" << err << ". invalid pattern string. " << errbuf;
-      throw Exception(Error(err, oss.str()));
+      oss << "CRegex(re=\"" << re << "\", nmatch=" << nmatch << ") regcomp() error=" << err << ". invalid pattern string";
+      std::error_code ec(err, regex_category(std::string(errbuf)));
+      throw std::system_error(ec, oss.str());
     }
   }
   ~CRegex()
@@ -1678,8 +1723,9 @@ public:
     if (ret != 0) {
       int err = ret;
       std::ostringstream oss;
-      oss << callee.str() << "    getaddrinfo(node=\"" << host_ << "\", port=" << port_ << ") error=" << err << ". " << gai_strerror(err);
-      throw Exception(Error(err, __LINE__, oss));
+      oss << callee.str() << " getaddrinfo(node=\"" << host_ << "\", port=" << port_ << ") error=" << err;
+      std::error_code ec(err, getaddrinfo_category());
+      throw std::system_error(ec, oss.str());
     }
     for (res = res0; res != nullptr; res = res->ai_next) {
       int sfd = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
@@ -1718,13 +1764,15 @@ public:
           FD_SET(sfd, &wfd);
           ret = 0;
           log_(Log::Level::TRACE) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ", timeout=" << timeout.to_string() << ')' << std::endl;
-          ret = pselect(sfd+1, &rfd, &wfd, nullptr, timeout.ptr(), nullptr);
+          int nfds = sfd + 1;
+          ret = pselect(nfds, &rfd, &wfd, nullptr, timeout.ptr(), nullptr);
           if (ret == -1) {
             int err = errno;
-            close_socket(sfd);
             std::ostringstream oss;
-            oss << callee.str() << "pselect() error=" << err << ". " << strerror(err);
-            throw Exception(Error(err, __LINE__, oss));
+            oss << "line:" << __LINE__ << " ::pselect(nfds=" << nfds << ", ...) errno=" << err;
+            close_socket(sfd);
+            std::error_code ecode(err, std::system_category());
+            throw std::system_error(ecode, oss.str());
           }
           else if (ret == 0) {
             log_(Log::Level::WARNING) << "::connect() is timeouted, try next." << std::endl;
@@ -2090,10 +2138,11 @@ public:
 
     int ret = ::getaddrinfo(host_.c_str(), std::to_string(port_).c_str(), &hints, &res0);
     if (ret != 0) {
-      int err = errno;
+      int err = ret;
       std::ostringstream oss;
-      oss << callee.str() << " getaddrinfo(node=\"" << host_ << "\", port=" << port_ << ") error=" << err << ". " << gai_strerror(err);
-      throw Exception(Error(err, __LINE__, oss));
+      oss << callee.str() << " getaddrinfo(node=\"" << host_ << "\", port=" << port_ << ") error=" << err;
+      std::error_code ec(err, getaddrinfo_category());
+      throw std::system_error(ec, oss.str());
     }
 
     for (res = res0; res != nullptr; res = res->ai_next) {
@@ -2171,10 +2220,11 @@ public:
       if (ret != 0) {
         int err = errno;
         std::ostringstream oss;
-        oss << "    ::listen(sfd=" << sfd << ", backlog=" << backlog << ") errno=" << err << ". " << strerror(err);
-        throw Exception(Error(err, __LINE__, oss));
+        oss << "line:" << __LINE__ << " ::listen(sfd=" << sfd << ", backlog=" << backlog << ") errno=" << err;
+        std::error_code ecode(err, std::system_category());
+        throw std::system_error(ecode, oss.str());
       }
-      log_(Log::Level::TRACE) << "::listen(sfd=" << sfd << ", backlog=" << backlog << ')' << std::endl;
+      log_(Log::Level::TRACE) << "  ::listen(sfd=" << sfd << ", backlog=" << backlog << ')' << std::endl;
     });
 
     return *this;
@@ -2206,12 +2256,14 @@ public:
     }
     log_ << '\n' << std::flush;
 
-    int ret = pselect(maxsfd+1, &rfds, nullptr, nullptr, nullptr, nullptr);
+    int nfds = maxsfd + 1;
+    int ret = pselect(nfds, &rfds, nullptr, nullptr, nullptr, nullptr);
     if (ret == -1) {
       int err = errno;
       std::ostringstream oss;
-      oss << "    pselect(maxsfd+1=" << (maxsfd+1) << ") error=" << err << ". " << strerror(err);
-      throw Exception(Error(err, __LINE__, oss));
+      oss << "line:" << __LINE__ << " ::pselect(nfds=" << nfds << ", ...) errno=" << err;
+      std::error_code ecode(err, std::system_category());
+      throw std::system_error(ecode, oss.str());
     }
 
     auto ite = std::find_if(std::begin(bind_sfds_), std::end(bind_sfds_), [&rfds](int sfd){
@@ -2227,12 +2279,13 @@ public:
     struct sockaddr_storage remote = {0};
     socklen_t addrlen = sizeof remote;
     int newsfd = ::accept(sfd, (struct sockaddr*)&remote, &addrlen);
-    log_(Log::Level::INFO) << "::accept(sfd=" << sfd << ") result=" << newsfd << std::endl;
+    log_(Log::Level::INFO) << "::accept(sfd=" << sfd << ", ...) result=" << newsfd << std::endl;
     if (newsfd < 0) {
       int err = errno;
       std::ostringstream oss;
-      oss << callee.str() << "::accept(sfd=" << sfd << ") error=" << err << ". " << strerror(err);
-      throw Exception(Error(err, __LINE__, oss));
+      oss << "line:" << __LINE__ << " ::accept(sfd=" << sfd << ", ...) errno=" << err;
+      std::error_code ecode(err, std::system_category());
+      throw std::system_error(ecode, oss.str());
     }
 
     WebSocket ws(Mode::SERVER);
@@ -2963,8 +3016,9 @@ private:
       if (ret < 0) {
         int err = errno;
         std::ostringstream oss;
-        oss << ":line " << __LINE__ << " send() error=" << err << ". " << strerror(err);
-        throw Exception(Error(err, oss));
+        oss << "line:" << __LINE__ << " ::send(sfd=" << sfd << ", ...) errno=" << err;
+        std::error_code ecode(err, std::system_category());
+        throw std::system_error(ecode, oss.str());
       }
 
       ptr += ret;
@@ -2997,21 +3051,29 @@ private:
     fd_set rfd;
     FD_ZERO(&rfd);
     FD_SET(sfd, &rfd);
-    int ret = pselect(sfd+1, &rfd, nullptr, nullptr, timeout.ptr(), nullptr);
+    int nfds = sfd + 1;
+    int ret = pselect(nfds, &rfd, nullptr, nullptr, timeout.ptr(), nullptr);
     if (ret == 0) {
-      throw Exception(Error(ETIMEDOUT));
+      std::ostringstream oss;
+      oss << "  recv_with_timeout(sfd=" << sfd << ", ...) TIMED OUT";
+      std::error_code ecode(static_cast<int>(std::errc::timed_out), std::system_category());
+      throw std::system_error(ecode, oss.str());
     }
     else if (ret == -1) {
       int err = errno;
-      throw Exception(Error(err));
+      std::ostringstream oss;
+      oss << " line:" << __LINE__ << " ::pselect(nfds=" << nfds << ", ...) errno=" << err;
+      std::error_code ecode(err, std::system_category());
+      throw std::system_error(ecode, oss.str());
     }
 
     ssize_t result = recv(sfd, buff, buffsz, 0);
     if (result == -1) {
       int err = errno;
       std::ostringstream oss;
-      oss << "::recv() error=" << err << ". " << strerror(err);
-      throw Exception(Error(err, __LINE__, oss));
+      oss << "line:" << __LINE__ << " ::recv(sfd=" << sfd << ", ...) errno=" << err;
+      std::error_code ecode(err, std::system_category());
+      throw std::system_error(ecode, oss.str());
     }
 
     slog.clear() << "WebSocket::recv_with_timeout(sfd=" << sfd << ", ...) result=" << result;
