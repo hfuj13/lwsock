@@ -53,7 +53,7 @@
 
 namespace lwsock {
 
-constexpr char Version[] = "v1.3.0";
+constexpr char Version[] = "v1.3.1";
 constexpr char B64chs[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 constexpr char GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 constexpr char EOL[] = "\r\n"; // end of line

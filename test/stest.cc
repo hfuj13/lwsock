@@ -15,7 +15,7 @@ void worker(WebSocket&& ws)
   auto rcvd = ws.recv_msg_txt();
   cout << "rcvd #[" << rcvd.first << "]#" << endl;
   ws.send_close(1000);
-  sleep(10);
+  sleep(3);
 }
 
 int main(int argc, char* argv[])

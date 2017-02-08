@@ -11,6 +11,7 @@ add_executable(
   testest
   src/gtest-all.cc
   testest.cc
+  version_test.cc
   base64_test.cc
   sha1_test.cc
   uri_parse_test.cc
@@ -19,7 +20,6 @@ add_executable(
   first_line_parse_test.cc
   is_numerichost_test.cc
   split_host_port_test.cc
-  version_test.cc
 )
 target_link_libraries(testest pthread)
 
