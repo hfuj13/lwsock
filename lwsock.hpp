@@ -54,6 +54,20 @@
 namespace lwsock {
 
 constexpr char Version[] = "v1.2.5";
+constexpr char B64chs[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+constexpr char GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+constexpr char EOL[] = "\r\n"; // end of line
+constexpr uint8_t Magic[] = {49, 49, 104, 102, 117, 106, 49, 51};
+
+/// WebSocket(RFC6455) Opcode enum
+enum class Opcode {
+  CONTINUE = 0x0,
+  TEXT = 0x1,
+  BINARY = 0x2,
+  CLOSE = 0x8,
+  PING = 0x9,
+  PONG = 0xa,
+};
 
 /// @brief lwsock error code
 ///
@@ -165,21 +179,6 @@ template<typename T> auto as_int(const T value) -> typename std::underlying_type
 {
   return static_cast<typename std::underlying_type<T>::type>(value);
 }
-
-/// WebSocket(RFC6455) Opcode enum
-enum class Opcode {
-  CONTINUE = 0x0,
-  TEXT = 0x1,
-  BINARY = 0x2,
-  CLOSE = 0x8,
-  PING = 0x9,
-  PONG = 0xa,
-};
-
-constexpr char B64chs[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-constexpr char GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-constexpr char EOL[] = "\r\n"; // end of line
-constexpr uint8_t Magic[] = {49, 49, 104, 102, 117, 106, 49, 51};
 
 /// @brief transform the adress family to string
 ///
