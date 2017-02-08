@@ -3056,10 +3056,18 @@ private:
       int ret = ::send(sfd, ptr, buffsz - sent_sz, MSG_NOSIGNAL);
       if (ret < 0) {
         int err = errno;
-        std::ostringstream oss;
-        oss << "line:" << __LINE__ << " ::send(sfd=" << sfd << ", ...) errno=" << err;
-        std::error_code ecode(err, std::system_category());
-        throw std::system_error(ecode, oss.str());
+        if (err == EPIPE) {
+          int err = as_int(lwsock_errc::SOCKET_CLOSED);
+          std::ostringstream oss;
+          oss << callee.str() << "  ::send(sfd=" << sfd << ", ...) errno=" << err << ". socket was closed from the remote.";
+          throw Exception(Error(err, __LINE__, oss));
+        }
+        else {
+          std::ostringstream oss;
+          oss << "line:" << __LINE__ << " ::send(sfd=" << sfd << ", ...) errno=" << err;
+          std::error_code ecode(err, std::system_category());
+          throw std::system_error(ecode, oss.str());
+        }
       }
 
       ptr += ret;
