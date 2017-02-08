@@ -1,5 +1,5 @@
 LWSOCK
-* lwsock is a Library for WebSocket (RFC6455) writen by C++.
+* lwsock is a Library of WebSocket (RFC6455) for C++.
 * L: a Library, WSOCK: WebSocket
 * API is like traditional TCP client / server. (connect, bind, listen, accept, send, recv)
 * IPv6 ready
@@ -24,7 +24,7 @@ Tester building:
 * make
 
 NOTE:
-* not supported TSL yet.
+* not supported TLS yet.
 * Default supported opening handshake headers are Host, Upgrade, Connection, Sec-WebSocket-Key and Sec-WebSocket-Accept.
 * If you want use other heaers, then use API send_req(const headers_t&)/send_res(const headers_t&) or send_req_manually(const handshake_t&)/send_res_manually(const handshake_t&).
 * If you use lwsock on Android NDK, then you should set -fexceptions and unset -Wexit-time-destructors.
