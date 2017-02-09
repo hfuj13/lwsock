@@ -36,6 +36,7 @@
 #include <cstdlib>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <exception>
 #include <functional>
@@ -75,7 +76,6 @@ enum class Opcode {
 /// @todo readjust errorcode
 enum class lwsock_errc: int {
   NO_ERROR = 0,
-  DECODE_ERROR = -1,
   COULD_NOT_OPEN_AVAILABLE_SOCKET = -102,
   SOCKET_CLOSED = -103,
   INVALID_HANDSHAKE = -104,
@@ -94,8 +94,8 @@ public:
   std::string message(int err) const override
   {
     switch (static_cast<lwsock_errc>(err)) {
-    case lwsock_errc::DECODE_ERROR:
-      return "DECODE_ERROR";
+    case lwsock_errc::NO_ERROR:
+      return "NO_ERROR";
     case lwsock_errc::COULD_NOT_OPEN_AVAILABLE_SOCKET:
       return "COULD_NOT_OPEN_AVAILABLE_SOCKET";
     case lwsock_errc::SOCKET_CLOSED:
@@ -648,7 +648,7 @@ inline std::vector<uint8_t> b64decode(const std::string& src)
   }
   constexpr int BLOCK_SZ = 4;
   std::vector<uint8_t> dst;
-  for (int i = 0; i < src.size(); i += BLOCK_SZ) {
+  for (size_t i = 0; i < src.size(); i += BLOCK_SZ) {
     const char* ptr = &src[i];
     std::array<uint8_t, 3> tmp;
     uint8_t value[BLOCK_SZ] = {0};
