@@ -53,7 +53,7 @@
 
 namespace lwsock {
 
-constexpr char Version[] = "v1.3.1";
+constexpr char Version[] = "v1.3.2";
 constexpr char B64chs[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 constexpr char GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 constexpr char EOL[] = "\r\n"; // end of line
@@ -631,67 +631,59 @@ inline std::string b64encode(const void* src_data, int src_data_sz)
 
 /// @brief base64 decoder
 ///
-/// This referred the http://ftp.netbsd.org/pub/NetBSD/NetBSD-current/src/sys/dev/iscsi/base64.c
-/// @param [in] src_data: base64 encoded string
+/// @param [in] src: base64 encoded string
 /// @retval base64 decoded data
 /// @exception Exception
-inline std::vector<uint8_t> b64decode(const std::string& src_data)
+inline std::vector<uint8_t> b64decode(const std::string& src)
 {
+  std::ostringstream callee;
+  callee << "b64decode(src=\"" << src << "\")";
+  ScopedLog slog(callee.str());
+
+  if (src.size() % 4 != 0) {
+    int err = as_int(lwsock_errc::INVALID_PARAM);
+    std::ostringstream oss;
+    oss << callee.str() << ". src.size() is illegal";
+    throw Exception(Error(err, __LINE__, oss.str()));
+  }
+  constexpr int BLOCK_SZ = 4;
   std::vector<uint8_t> dst;
-
-  // token_decode function
-  auto token_decode = [](const char* token, lwsock_errc& result) -> uint32_t {
-    uint32_t val = 0;
-    int marker = 0;
-
-    if (::strlen(token) < 4) {
-      result = lwsock_errc::DECODE_ERROR;
-      return as_int(result);
-    }
-    for (int i = 0; i < 4; i++) {
-      val *= 64;
-      if (token[i] == '=') {
-        marker++;
-      } else if (marker > 0) {
-        result = lwsock_errc::DECODE_ERROR;
-        return as_int(result);
-      } else {
-          int idx = -1;
-          for (const char* p = B64chs ;*p != '\n'; ++p) {
-            if (*p == token[i]) {
-              idx = p - B64chs;
-              break;
-            }
-          }
-
-          val += idx;
+  for (int i = 0; i < src.size(); i += BLOCK_SZ) {
+    const char* ptr = &src[i];
+    std::array<uint8_t, 3> tmp;
+    uint8_t value[BLOCK_SZ] = {0};
+    int j = 0;
+    for (; j < BLOCK_SZ; ++j) {
+      if (std::isupper(ptr[j])) {
+        value[j] = ptr[j] - 65;
+      }
+      else if (std::islower(ptr[j])) {
+        value[j] = ptr[j] - 71;
+      }
+      else if (std::isdigit(ptr[j])) {
+        value[j] = ptr[j] + 4;
+      }
+      else if (ptr[j] == '+') {
+        value[j] = ptr[j] + 19;
+      }
+      else if (ptr[j] == '/') {
+        value[j] = ptr[j] + 16;
+      }
+      else if (ptr[j] == '=') {
+        break;
+      }
+      else {
+        int err = as_int(lwsock_errc::INVALID_PARAM);
+        std::ostringstream oss;
+        char ch = ptr[j];
+        oss << callee.str() << ". illegal char='" << ch << '\'';
+        throw Exception(Error(err, __LINE__, oss.str()));
       }
     }
-    if (marker > 2) {
-      result = lwsock_errc::DECODE_ERROR;
-      return as_int(result);
-    }
-    result = lwsock_errc::NO_ERROR;
-    return (marker << 24) | val;
-  };
-
-  uint32_t marker = 0;
-  for (const char* p = src_data.c_str(); *p != '\0'; p += 4) {
-    lwsock_errc result = lwsock_errc::NO_ERROR;
-    uint32_t val = token_decode(p, result);
-    if (result == lwsock_errc::DECODE_ERROR) {
-      std::ostringstream oss;
-      oss << "b64decode(" << src_data << ") decode error.";
-      throw Exception(Error(as_int(lwsock_errc::DECODE_ERROR), oss));
-    }
-    marker = (val >> 24) & 0xff;
-    dst.push_back((val >> 16) & 0xff);
-    if (marker < 2) {
-      dst.push_back((val >> 8) & 0xff);
-    }
-    if (marker < 1) {
-      dst.push_back(val & 0xff);
-    }
+    tmp[0] = value[0] << 2 | value[1] >> 4;
+    tmp[1] = value[1] << 4 | value[2] >> 2;
+    tmp[2] = value[2] << 6 | value[3];
+    std::copy(std::begin(tmp), std::begin(tmp) + j - 1, std::back_inserter(dst));
   }
   return dst;
 }
