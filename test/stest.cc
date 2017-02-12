@@ -22,6 +22,7 @@ int main(int argc, char* argv[])
 {
   WebSocket ws(WebSocket::Mode::SERVER);
   ws.ostream4log(cout);
+  ws.loglevel(Log::Level::DEBUG);
 
   ws.bind("ws://localhost:22000");
   ws.listen(5);
