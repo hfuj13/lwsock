@@ -22,14 +22,14 @@ int main(int argc, char* argv[])
 {
   WebSocket ws(WebSocket::Mode::SERVER);
   ws.ostream4log(cout);
-  ws.loglevel(Log::Level::DEBUG);
+  ws.loglevel(LogLevel::DEBUG);
 
   ws.bind("ws://localhost:22000");
   ws.listen(5);
   vector<thread> th_set;
-  const int max = 3;
+  const int max = 2;
   for (int i = 0; i < max; ++i) {
-    cout << "\n\n\n" << endl;
+    cout << "\n" << endl;
     WebSocket nws = ws.accept();
     auto th = thread(worker, move(nws));
     th_set.push_back(move(th));

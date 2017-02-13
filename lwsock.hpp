@@ -55,6 +55,11 @@
 
 namespace lwsock {
 
+#define callee(func_name, param) \
+std::ostringstream callee; \
+{ callee << func_name << param; }
+
+
 constexpr char Version[] = "v1.3.3";
 constexpr char B64chs[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 constexpr char GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -75,7 +80,7 @@ enum class Opcode {
 ///
 /// negative value. (positive value is system error)
 /// @todo readjust errorcode
-enum class lwsock_errc: int32_t {
+enum class LwsockErrc: int32_t {
   NO_ERROR = 0,
   COULD_NOT_OPEN_AVAILABLE_SOCKET = -102,
   SOCKET_CLOSED = -103,
@@ -86,6 +91,14 @@ enum class lwsock_errc: int32_t {
   INVALID_MODE = -109,
   BAD_MESSAGE = -110,
   TIMED_OUT = -111,
+};
+
+enum class LogLevel: int32_t {
+  TRACE = 1,
+  DEBUG,
+  INFO,
+  WARNING,
+  ERROR,
 };
 
 /// @brief get emum class value as int
@@ -219,20 +232,13 @@ inline std::string str2lower(const std::string& str)
 /// this class output log to ostream. singleton class.
 class Log final {
 public:
-  enum class Level {
-    TRACE = 1,
-    DEBUG,
-    INFO,
-    WARNING,
-    ERROR,
-  };
   Log(const Log&) = delete;
   Log(Log&&) = delete;
   Log& operator=(const Log&) = delete;
   Log& operator=(Log&&) = delete;
 
   /// @param [in] lvl: output level
-  std::ostream& operator()(Level lvl)
+  std::ostream& operator()(LogLevel lvl)
   {
     if (lvl >= level_)
     { return (*this) << now_timestamp() << "[thd:" << std::this_thread::get_id() << "] "; }
@@ -285,7 +291,7 @@ public:
   ///
   /// @param [in] lvl: log level
   /// @retval reference of *this
-  Log& level(Level lvl)
+  Log& level(LogLevel lvl)
   {
     level_ = lvl;
     return *this;
@@ -294,7 +300,7 @@ public:
   /// @brife get log level
   ///
   /// @retval log level
-  Level level()
+  LogLevel level()
   {
     return level_;
   }
@@ -316,7 +322,7 @@ private:
     return log;
   }
   std::ostream* ost_ = nullptr;
-  Level level_ = Level::ERROR;
+  LogLevel level_ = LogLevel::ERROR;
 };
 
 // coresspond stream operator ("<<")
@@ -335,14 +341,17 @@ public:
   /// @brief constructer
   ///
   /// @param [in] str: log string
-  ScopedLog(const std::string& str)
-  : oss_(str)
+  explicit ScopedLog(const std::string& str)
+  : ScopedLog(LogLevel::DEBUG, str)
+  { }
+  ScopedLog(LogLevel loglevel, const std::string& str)
+  : loglevel_(loglevel), oss_(str)
   {
-    log_(Log::Level::DEBUG) << "[[[[ " << oss_.str() << std::endl;
+    log_(loglevel_) << "[[[[ " << oss_.str() << std::endl;
   }
   ~ScopedLog()
   {
-    log_(Log::Level::DEBUG) << "]]]] " << oss_.str() << std::endl;
+    log_(loglevel_) << "]]]] " << oss_.str() << std::endl;
   }
   std::string str()
   {
@@ -359,6 +368,7 @@ public:
 private:
   //std::ostream& ost_;
   Log& log_ = Log::get_instance();
+  LogLevel loglevel_ = LogLevel::DEBUG;
   std::ostringstream oss_;
 };
 
@@ -389,7 +399,7 @@ public:
       what_ = oss.str();
     }
     Log& log = Log::get_instance();
-    log(Log::Level::ERROR) << what_ << std::endl;
+    log(LogLevel::ERROR) << what_ << std::endl;
   }
   Error(int errcode, uint32_t line)
   : Error(errcode, line, "")
@@ -421,61 +431,6 @@ private:
   int errcode_ = 0;
   uint32_t line_ = 0; // the line when the error occurred
   std::string what_;
-};
-
-/// @brief system_error exception class. this is a wrapper class because i want to output logs.
-///
-class SystemErrorException final: public std::exception {
-public:
-  SystemErrorException() = delete;
-  SystemErrorException(const SystemErrorException&) = default;
-  SystemErrorException(SystemErrorException&&) = default;
-  SystemErrorException(const Error& error)
-  : error_(error)
-  { }
-  ~SystemErrorException() = default;
-
-  const char* what() const noexcept override
-  {
-    return error_.what();
-  }
-
-  /// @brief get exception code (error code etc.)
-  ///
-  /// @retavl error code
-  virtual int code()
-  {
-    return error_.code();
-  }
-private:
-  Error error_;
-};
-
-/// @brief libray error exception class
-class LwsockException final: public std::exception {
-public:
-  LwsockException() = delete;
-  LwsockException(const LwsockException&) = default;
-  LwsockException(LwsockException&&) = default;
-  LwsockException(const Error& error)
-  : error_(error)
-  { }
-  ~LwsockException() = default;
-
-  const char* what() const noexcept override
-  {
-    return error_.what();
-  }
-
-  /// @brief get exception code (error code etc.)
-  ///
-  /// @retavl error code
-  virtual int code()
-  {
-    return error_.code();
-  }
-private:
-  Error error_;
 };
 
 class CRegexException final: public std::exception {
@@ -530,6 +485,61 @@ private:
   Error error_;
 };
 
+/// @brief libray error exception class
+class LwsockException final: public std::exception {
+public:
+  LwsockException() = delete;
+  LwsockException(const LwsockException&) = default;
+  LwsockException(LwsockException&&) = default;
+  LwsockException(const Error& error)
+  : error_(error)
+  { }
+  ~LwsockException() = default;
+
+  const char* what() const noexcept override
+  {
+    return error_.what();
+  }
+
+  /// @brief get exception code (error code etc.)
+  ///
+  /// @retavl error code
+  virtual int code()
+  {
+    return error_.code();
+  }
+private:
+  Error error_;
+};
+
+/// @brief system_error exception class. this is a wrapper class because i want to output logs.
+///
+class SystemErrorException final: public std::exception {
+public:
+  SystemErrorException() = delete;
+  SystemErrorException(const SystemErrorException&) = default;
+  SystemErrorException(SystemErrorException&&) = default;
+  SystemErrorException(const Error& error)
+  : error_(error)
+  { }
+  ~SystemErrorException() = default;
+
+  const char* what() const noexcept override
+  {
+    return error_.what();
+  }
+
+  /// @brief get exception code (error code etc.)
+  ///
+  /// @retavl error code
+  virtual int code()
+  {
+    return error_.code();
+  }
+private:
+  Error error_;
+};
+
 /// @brief regex(3) wrapper
 ///
 /// regex(3) wrapper class. because the std::regex, depending on the version of android it does not work properly.
@@ -542,7 +552,7 @@ public:
   : nmatch_(nmatch)
   {
     Log& log = Log::get_instance();
-    log(Log::Level::TRACE) << "CRegex(re=\"" << re << "\", nmatch=" << nmatch << ')' << std::endl;
+    log(LogLevel::TRACE) << "CRegex(re=\"" << re << "\", nmatch=" << nmatch << ')' << std::endl;
 
     int err = regcomp(&regbuff_, re.c_str(), REG_EXTENDED);
     if (err != 0) {
@@ -561,7 +571,7 @@ public:
   /// @brief execute regex
   ///
   /// @param [in] src: string for regex
-  /// @retval matched string set. if size()==0 then no matched
+  /// @retval matched string set. if empty then no matched
   std::vector<std::string> exec(const std::string& src)
   {
     std::vector<std::string> matched;
@@ -628,12 +638,10 @@ inline std::string b64encode(const void* src_data, int src_data_sz)
 /// @exception LwsockException
 inline std::vector<uint8_t> b64decode(const std::string& src)
 {
-  std::ostringstream callee;
-  callee << __func__ << "(src=\"" << src << "\").";
-  ScopedLog slog(callee.str());
+  callee(__func__, "(src=\"" << src << "\")");
 
   if (src.size() % 4 != 0) {
-    int err = as_int(lwsock_errc::INVALID_PARAM);
+    int err = as_int(LwsockErrc::INVALID_PARAM);
     std::ostringstream oss;
     oss << callee.str() << " src.size()=" << src.size() << " is illegal.";
     throw LwsockException(Error(err, oss.str()));
@@ -665,10 +673,10 @@ inline std::vector<uint8_t> b64decode(const std::string& src)
         break;
       }
       else {
-        int err = as_int(lwsock_errc::INVALID_PARAM);
+        int err = as_int(LwsockErrc::INVALID_PARAM);
         std::ostringstream oss;
         char ch = ptr[j];
-        oss << callee.str() << " illegal char='" << ch << '\'' << '.';
+        oss << callee.str() << " illegal char='" << ch << '\'';
         throw LwsockException(Error(err, oss.str()));
       }
     }
@@ -967,12 +975,11 @@ inline bool is_numerichost(const std::string& host)
 /// @exception CRegexException, LwsockExrepss
 inline std::pair<std::string, std::string> split_hostport_pathquery(const std::string& uri)
 {
+  callee(__func__, "(uri=\"" << uri << "\")");
+  ScopedLog slog(LogLevel::TRACE, callee.str());
+
   std::string re = R"(^ws://([][0-9A-Za-z\.:\-]+)(/.*)?)";
   size_t nmatch = 4;
-
-  std::ostringstream callee;
-  callee << __func__ << "(uri=\"" << uri << "\").";
-  ScopedLog slog(callee.str());
 
   std::pair<std::string, std::string> hostport_pathquery;
 
@@ -987,7 +994,7 @@ inline std::pair<std::string, std::string> split_hostport_pathquery(const std::s
     break;
   default:
     {
-      int err = as_int(lwsock_errc::INVALID_PARAM);
+      int err = as_int(LwsockErrc::INVALID_PARAM);
       std::ostringstream oss;
       oss << callee.str() << " invalid uri.";
       throw LwsockException(Error(err, __LINE__, oss.str()));
@@ -996,10 +1003,10 @@ inline std::pair<std::string, std::string> split_hostport_pathquery(const std::s
   }
 
   Log& log = Log::get_instance();
-  log(Log::Level::TRACE) << "    hostport=\"" << hostport_pathquery.first << "\"\n";
-  log(Log::Level::TRACE) << "    pathquery=\"" << hostport_pathquery.second << '\"'<< std::endl;
+  log(LogLevel::TRACE) << "    hostport=\"" << hostport_pathquery.first << "\"\n";
+  log(LogLevel::TRACE) << "    pathquery=\"" << hostport_pathquery.second << '\"'<< std::endl;
 
-  slog.clear() << __func__;
+  slog.clear() << __func__ << "(...)";
 
   return hostport_pathquery;
 }
@@ -1012,12 +1019,11 @@ inline std::pair<std::string, std::string> split_hostport_pathquery(const std::s
 /// @exception CRegexException, LwsockExrepss
 inline std::pair<std::string, std::string> split_path_query(const std::string& path_query_str)
 {
+  callee(__func__, "(path_query_str=\"" << path_query_str << "\")");
+  ScopedLog slog(LogLevel::TRACE, callee.str());
+
   std::string re = R"((/?[^? ]*)(\?[^ ]*)?)";
   size_t nmatch = 4;
-
-  std::ostringstream callee;
-  callee << __func__ << "(path_query_str=\"" << path_query_str << "\").";
-  ScopedLog slog(callee.str());
 
   std::pair<std::string, std::string> path_query;
   CRegex regex(re, nmatch);
@@ -1032,7 +1038,7 @@ inline std::pair<std::string, std::string> split_path_query(const std::string& p
     path_query.first = result[1][0] != '/' ? "/" + result[1] : result[1];
     break;
   default:
-    { int err = as_int(lwsock_errc::INVALID_PARAM);
+    { int err = as_int(LwsockErrc::INVALID_PARAM);
       std::ostringstream oss;
       oss << callee.str() << " invalid path_query_str.";
       throw LwsockException(Error(err, __LINE__, oss.str()));
@@ -1041,10 +1047,10 @@ inline std::pair<std::string, std::string> split_path_query(const std::string& p
   }
 
   Log& log = Log::get_instance();
-  log(Log::Level::TRACE) << "    path=\"" << path_query.first << "\"\n";
-  log(Log::Level::TRACE) << "    query=\"" << path_query.second << '\"'<< std::endl;
+  log(LogLevel::TRACE) << "    path=\"" << path_query.first << "\"\n";
+  log(LogLevel::TRACE) << "    query=\"" << path_query.second << '\"'<< std::endl;
 
-  slog.clear() << __func__;
+  slog.clear() << __func__ << "(...)";
   return path_query;
 }
 
@@ -1056,9 +1062,8 @@ inline std::pair<std::string, std::string> split_path_query(const std::string& p
 /// @exception CRegexException, LwsockExrepss
 inline std::pair<std::string, std::string> split_host_port(const std::string& host_port_str)
 {
-  std::ostringstream callee;
-  callee << __func__ << "(host_port_str=\"" << host_port_str << "\").";
-  ScopedLog slog(callee.str());
+  callee(__func__, "(host_port_str=\"" << host_port_str << "\")");
+  ScopedLog slog(LogLevel::TRACE, callee.str());
 
   std::pair<std::string, std::string> host_port;
 
@@ -1076,7 +1081,7 @@ inline std::pair<std::string, std::string> split_host_port(const std::string& ho
       break;
     default:
       {
-        int err = as_int(lwsock_errc::INVALID_PARAM);
+        int err = as_int(LwsockErrc::INVALID_PARAM);
         std::ostringstream oss;
         oss << callee.str() << " invalid host_port_str.";
         throw LwsockException(Error(err, __LINE__, oss.str()));
@@ -1104,7 +1109,7 @@ inline std::pair<std::string, std::string> split_host_port(const std::string& ho
           break;
         default:
           {
-            int err = as_int(lwsock_errc::INVALID_PARAM);
+            int err = as_int(LwsockErrc::INVALID_PARAM);
             std::ostringstream oss;
             oss << callee.str() << " invalid host_port_str.";
             throw LwsockException(Error(err, __LINE__, oss.str()));
@@ -1160,7 +1165,7 @@ inline std::pair<std::string, std::string> split_host_port(const std::string& ho
           break;
         default:
           {
-            int err = as_int(lwsock_errc::INVALID_PARAM);
+            int err = as_int(LwsockErrc::INVALID_PARAM);
             std::ostringstream oss;
             oss << callee.str() << " invalid host_port_str.";
             throw LwsockException(Error(err, __LINE__, oss.str()));
@@ -1187,7 +1192,7 @@ inline std::pair<std::string, std::string> split_host_port(const std::string& ho
           break;
         default:
           {
-            int err = as_int(lwsock_errc::INVALID_PARAM);
+            int err = as_int(LwsockErrc::INVALID_PARAM);
             std::ostringstream oss;
             oss << callee.str() << " invalid host_port_str.";
             throw LwsockException(Error(err, __LINE__, oss.str()));
@@ -1202,10 +1207,10 @@ inline std::pair<std::string, std::string> split_host_port(const std::string& ho
 func_end:
 
   Log& log = Log::get_instance();
-  log(Log::Level::TRACE) << "    host=\"" << host_port.first << "\"\n";
-  log(Log::Level::TRACE) << "    port=\"" << host_port.second << '\"'<< std::endl;
+  log(LogLevel::TRACE) << "    host=\"" << host_port.first << "\"\n";
+  log(LogLevel::TRACE) << "    port=\"" << host_port.second << '\"'<< std::endl;
 
-  slog.clear() << "split_host_port()";
+  slog.clear() << __func__ << "()";
   return host_port;
 }
 
@@ -1433,7 +1438,7 @@ public:
   Sockaddr(const struct sockaddr* saddr, socklen_t addrlen)
   {
     if (sizeof uaddr_.storage < static_cast<size_t>(addrlen)) {
-      int err = as_int(lwsock_errc::INVALID_PARAM);
+      int err = as_int(LwsockErrc::INVALID_PARAM);
       std::ostringstream oss;
       oss << "Sockaddr(saddr=" << std::hex << saddr << ", addrlen=" << std::dec << addrlen << ") addrlen is too big. [requier addrlen <= sizeof(struct sockaddr_storage)]";
       throw LwsockException(Error(err, __LINE__, oss.str()));
@@ -1480,7 +1485,7 @@ public:
       break;
     default:
       {
-        int err = as_int(lwsock_errc::INVALID_AF);
+        int err = as_int(LwsockErrc::INVALID_AF);
         std::ostringstream oss;
         oss << "Sockaddr::ip()" << ". sockaddr::sa_family=" << af2str(uaddr_.saddr.sa_family);
         throw LwsockException(Error(err, __LINE__, oss.str()));
@@ -1536,7 +1541,7 @@ public:
       tm_ = std::make_unique<struct timespec>(timespec{msec / 1000, msec % 1000 * 1000000});
     }
     else {
-      throw LwsockException(Error(as_int(lwsock_errc::INVALID_PARAM), __LINE__));
+      throw LwsockException(Error(as_int(LwsockErrc::INVALID_PARAM), __LINE__));
     }
   }
   bool operator==(int32_t msec) const
@@ -1590,6 +1595,7 @@ private:
 };
 
 #define METHOD(arg) "WebSocket::" << __func__ << arg
+#define WSMETHOD "WebSocket::" << __func__
 
 /// @brierf WebSocket class
 class WebSocket final {
@@ -1688,8 +1694,7 @@ public:
     assert(!uri.empty());
     assert(sfd_ == -1);
 
-    std::ostringstream callee;
-    callee << METHOD("(uri=\"" << uri << "\", af=" << af2str(af) << ", timeout=" << timeout.to_string() << ')' << '.');
+    callee(WSMETHOD, "(uri=\"" << uri << "\", af=" << af2str(af) << ", timeout=" << timeout.to_string() << ')');
     ScopedLog slog(callee.str());
 
     // define a function that it set nonblocking/blocking to sfd.
@@ -1711,7 +1716,7 @@ public:
       host_port = split_host_port(hostport_pathquery.first);
     }
     catch (LwsockException& e) {
-      int err = as_int(lwsock_errc::INVALID_PARAM);
+      int err = as_int(LwsockErrc::INVALID_PARAM);
       std::ostringstream oss;
       oss << callee.str() << " invalid uri.";
       throw LwsockException(Error(err, __LINE__, oss.str()));
@@ -1728,19 +1733,19 @@ public:
       port_ = host_port.second.empty() ? 80 : std::stoi(host_port.second);
     }
     catch (std::invalid_argument& e) {
-      int err = as_int(lwsock_errc::INVALID_PARAM);
+      int err = as_int(LwsockErrc::INVALID_PARAM);
       std::ostringstream oss;
-      oss << callee.str() << " invalid port number=" << host_port.second << '.';
+      oss << callee.str() << " invalid port number=" << host_port.second;
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
     if (port_ > 65535) {
-      int err = as_int(lwsock_errc::INVALID_PARAM);
+      int err = as_int(LwsockErrc::INVALID_PARAM);
       std::ostringstream oss;
-      oss << callee.str() << " invalid port number=" << host_port.second << '.';
+      oss << callee.str() << " invalid port number=" << host_port.second;
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
 
-    log_(Log::Level::INFO) << "host=\"" << host_ << "\", port=" << port_ << ", path=\"" << path_ << "\", query=\"" << query_  << '\"' << std::endl;
+    log_(LogLevel::INFO) << "host=\"" << host_ << "\", port=" << port_ << ", path=\"" << path_ << "\", query=\"" << query_  << '\"' << std::endl;
 
     int available_sfd = -1;
     struct addrinfo hints = {0};
@@ -1758,17 +1763,17 @@ public:
     if (ret != 0) {
       int err = ret;
       std::ostringstream oss;
-      oss << callee.str() << " getaddrinfo(node=\"" << host_ << "\", port=" << port_ << ").";
+      oss << callee.str() << " getaddrinfo(node=\"" << host_ << "\", port=" << port_ << ")";
       throw GetaddrinfoException(Error(err, __LINE__, oss.str()));
     }
     for (res = res0; res != nullptr; res = res->ai_next) {
       int sfd = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
       if (sfd < 0) {
         int err = errno;
-        log_(Log::Level::WARNING) << "socket(" << res->ai_family << ", " << res->ai_socktype << ", " << res->ai_protocol << ") error=" << err << ". " << strerror(err) << ". Try next." << std::endl;
+        log_(LogLevel::WARNING) << "socket(" << res->ai_family << ", " << res->ai_socktype << ", " << res->ai_protocol << ") error=" << err << ". " << strerror(err) << ". Try next." << std::endl;
         continue;
       }
-      log_(Log::Level::TRACE) << "socket() opened sfd=" << sfd << std::endl;
+      log_(LogLevel::TRACE) << "socket() opened sfd=" << sfd << std::endl;
 
       int on = 1;
       if (res->ai_family == AF_INET6) {
@@ -1781,7 +1786,7 @@ public:
       if (ret == 0) {
         sfd_nonblock(sfd, false); // reset blocking mode
         Sockaddr saddr(res->ai_addr, res->ai_addrlen);
-        log_(Log::Level::TRACE) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") success" << std::endl;
+        log_(LogLevel::TRACE) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") success" << std::endl;
         available_sfd = sfd;
         break;
       }
@@ -1797,18 +1802,18 @@ public:
           FD_ZERO(&wfd);
           FD_SET(sfd, &wfd);
           ret = 0;
-          log_(Log::Level::TRACE) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ", timeout=" << timeout.to_string() << ')' << std::endl;
+          log_(LogLevel::TRACE) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ", timeout=" << timeout.to_string() << ')' << std::endl;
           int nfds = sfd + 1;
           ret = pselect(nfds, &rfd, &wfd, nullptr, timeout.ptr(), nullptr);
           if (ret == -1) {
             int err = errno;
             std::ostringstream oss;
-            oss << callee.str() << " ::pselect(nfds=" << nfds << ", ...).";
+            oss << callee.str() << " ::pselect(nfds=" << nfds << ", ...)";
             close_socket(sfd);
             throw SystemErrorException(Error(err, __LINE__, oss.str()));
           }
           else if (ret == 0) {
-            log_(Log::Level::WARNING) << "::connect() is timeouted, try next." << std::endl;
+            log_(LogLevel::WARNING) << "::connect() is timeouted, try next." << std::endl;
             close_socket(sfd);
             break; // try a next connection
           }
@@ -1822,10 +1827,10 @@ public:
               }
               Sockaddr saddr(res->ai_addr, res->ai_addrlen);
               if (ret == 0) {
-                log_(Log::Level::WARNING) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") is closed from the server. Try next" << std::endl;
+                log_(LogLevel::WARNING) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") is closed from the server. Try next" << std::endl;
               }
               else {
-                log_(Log::Level::WARNING) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". Try next" << std::endl;
+                log_(LogLevel::WARNING) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". Try next" << std::endl;
               }
               close_socket(sfd);
               continue;
@@ -1844,7 +1849,7 @@ public:
         else {
           close_socket(sfd);
           Sockaddr saddr(res->ai_addr, res->ai_addrlen);
-          log_(Log::Level::WARNING) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". closed socket. Try next." << std::endl;
+          log_(LogLevel::WARNING) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". closed socket. Try next." << std::endl;
 
         }
       }
@@ -1852,15 +1857,14 @@ public:
     freeaddrinfo(res);
 
     if (available_sfd == -1) {
-      int err = as_int(lwsock_errc::COULD_NOT_OPEN_AVAILABLE_SOCKET);
+      int err = as_int(LwsockErrc::COULD_NOT_OPEN_AVAILABLE_SOCKET);
       std::ostringstream oss;
       oss << callee.str() << " COULD_NOT_OPEN_AVAILABLE_SOCKET.";
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
 
     sfd_ = available_sfd;
-    //log_(Log::Level::INFO) << "WebSocket::connect(sfd=" << sfd_ << ") connect success." << std::endl;
-    log_(Log::Level::INFO) << METHOD("(sfd=" << sfd_ << ") connect success.") << std::endl;
+    log_(LogLevel::INFO) << METHOD("(sfd=" << sfd_ << ") connect success.") << std::endl;
 
     return *this;
   }
@@ -1902,8 +1906,7 @@ public:
     assert(sfd_ != -1);
     assert(mode_ == Mode::CLIENT);
 
-    std::ostringstream callee;
-    callee << METHOD("() otherheaders cnt=" << otherheaders.size()) << '.';
+    callee(WSMETHOD, "() otherheaders cnt=" << otherheaders.size());
     ScopedLog slog(callee.str());
 
     std::ostringstream first_line;
@@ -1956,8 +1959,7 @@ public:
   {
     assert(sfd_ != -1);
 
-    std::ostringstream callee;
-    callee << METHOD("(timeout=" << timeout.to_string() << ").");
+    callee(WSMETHOD, "(timeout=" << timeout.to_string() << ")");
     ScopedLog slog(callee.str());
 
     std::string recved_response = recv_until_eoh(sfd_, timeout);
@@ -1967,9 +1969,9 @@ public:
     std::vector<std::string> tmp = regex.exec(handshake_data.first);
 
     if (tmp.size() < 3) {
-      int err = as_int(lwsock_errc::INVALID_HANDSHAKE);
+      int err = as_int(LwsockErrc::INVALID_HANDSHAKE);
       std::ostringstream oss;
-      oss << callee.str() << " INVALID_HANDSHAKE first_line=\"" << handshake_data.first << "\", then send CLOSE frame and close socket=" << sfd_ << '.';
+      oss << callee.str() << " INVALID_HANDSHAKE first_line=\"" << handshake_data.first << "\", then send CLOSE frame and close socket=" << sfd_;
       send_close(1002);
       close_socket(sfd_); // 10.7 when the endpoint sees an opening handshake that does not correspond to the values it is expecting, the endpoint MAY drop the TCP connection.
       throw LwsockException(Error(err, __LINE__, oss.str()));
@@ -1984,11 +1986,17 @@ public:
     }
     catch (LwsockException& e) {
       std::ostringstream oss;
-      oss << callee.str() << e.what() << ", then send CLOSE frame and close socket=" << sfd_ << '.';
+      oss << callee.str() << e.what() << ", then send CLOSE frame and close socket=" << sfd_;
       send_close(1002);
       close_socket(sfd_); // 10.7 when the endpoint sees an opening handshake that does not correspond to the values it is expecting, the endpoint MAY drop the TCP connection.
       throw LwsockException(Error(e.code(), __LINE__, oss.str()));
     }
+
+    log_(LogLevel::DEBUG) << handshake_data.first << std::endl;
+    for (auto& elm : handshake_data.second) {
+      log_(LogLevel::DEBUG) << elm.first << ':' << elm.second << '\n';
+    }
+    log_(LogLevel::DEBUG) << std::endl;
 
     return std::pair<handshake_t, int32_t>(handshake_data, status_code);
   }
@@ -2043,8 +2051,7 @@ public:
   {
     assert(sfd_ != -1);
 
-    std::ostringstream callee;
-    callee << METHOD("(timeout=" << timeout.to_string() << ").");
+    callee(WSMETHOD, "(timeout=" << timeout.to_string() << ")");
     ScopedLog slog(callee.str());
 
     std::pair<std::string, int32_t> result = recv_msg<std::string>(timeout);
@@ -2072,8 +2079,7 @@ public:
   {
     assert(sfd_ != -1);
 
-    std::ostringstream callee;
-    callee << METHOD("(timeout=" << timeout.to_string() << ").");
+    callee(WSMETHOD, "(timeout=" << timeout.to_string() << ")");
     ScopedLog slog(callee.str());
 
     std::pair<std::vector<uint8_t>, int32_t> result = recv_msg<std::vector<uint8_t>>(timeout);
@@ -2100,28 +2106,27 @@ public:
     assert(!uri.empty());
     assert(sfd_ == -1);
 
-    std::ostringstream callee;
-    callee << METHOD("(uri=\"" << uri << "\", af=" << af2str(af) << ").");
+    callee(WSMETHOD, "(uri=\"" << uri << "\", af=" << af2str(af) << ")");
     ScopedLog slog(callee.str());
 
     if (mode_ != Mode::SERVER) {
-      int err = as_int(lwsock_errc::INVALID_MODE);
+      int err = as_int(LwsockErrc::INVALID_MODE);
       std::ostringstream oss;
       oss << callee.str() << " invalid mode. expect Mode::SERVER, actual Mode::CLIENT.";
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
 
     if (uri.empty()) {
-      int err = as_int(lwsock_errc::INVALID_PARAM);
+      int err = as_int(LwsockErrc::INVALID_PARAM);
       std::ostringstream oss;
       oss << callee.str() << " invalid uri.";
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
 
     if (af != AF_UNSPEC && af != AF_INET && af != AF_INET6) {
-      int err = as_int(lwsock_errc::INVALID_PARAM);
+      int err = as_int(LwsockErrc::INVALID_PARAM);
       std::ostringstream oss;
-      oss << callee.str() << " invalid af=" << af2str(af) << '.';
+      oss << callee.str() << " invalid af=" << af2str(af);
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
 
@@ -2135,7 +2140,7 @@ public:
       host_port = split_host_port(hostport_pathquery.first);
     }
     catch (LwsockException& e) {
-      int err = as_int(lwsock_errc::INVALID_PARAM);
+      int err = as_int(LwsockErrc::INVALID_PARAM);
       std::ostringstream oss;
       oss << callee.str() << " invalid uri.";
       throw LwsockException(Error(err, __LINE__, oss.str()));
@@ -2151,19 +2156,19 @@ public:
       port_ = host_port.second.empty() ? 80 : std::stoi(host_port.second);
     }
     catch (std::invalid_argument& e) {
-      int err = as_int(lwsock_errc::INVALID_PARAM);
+      int err = as_int(LwsockErrc::INVALID_PARAM);
       std::ostringstream oss;
-      oss << callee.str() << " invalid port number=" << host_port.second << '.';
+      oss << callee.str() << " invalid port number=" << host_port.second;
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
     if (port_ > 65535) {
-      int err = as_int(lwsock_errc::INVALID_PARAM);
+      int err = as_int(LwsockErrc::INVALID_PARAM);
       std::ostringstream oss;
-      oss << callee.str() << " invalid port number=" << host_port.second << '.';
+      oss << callee.str() << " invalid port number=" << host_port.second;
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
 
-    log_(Log::Level::INFO)
+    log_(LogLevel::INFO)
         << "host_=\"" << host_ << '\"' << ", port=" << port_ << ", path_=\"" << path_ << '\"' << ", query=\"" << query_ << '\"'
         << std::endl
         ;
@@ -2183,7 +2188,7 @@ public:
     if (ret != 0) {
       int err = ret;
       std::ostringstream oss;
-      oss << callee.str() << " getaddrinfo(node=\"" << host_ << "\", port=" << port_ << ").";
+      oss << callee.str() << " getaddrinfo(node=\"" << host_ << "\", port=" << port_ << ")";
       throw GetaddrinfoException(Error(err, __LINE__, oss.str()));
     }
 
@@ -2191,10 +2196,10 @@ public:
       int sfd = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
       if (sfd < 0) {
         int err = errno;
-        log_(Log::Level::WARNING) << "::socket(" << res->ai_family << ", " << res->ai_socktype << ", " << res->ai_protocol << ") error=" << err << ". " << strerror(err) << ". Try next." << std::endl;
+        log_(LogLevel::WARNING) << "::socket(" << res->ai_family << ", " << res->ai_socktype << ", " << res->ai_protocol << ") error=" << err << ". " << strerror(err) << ". Try next." << std::endl;
         continue;
       }
-      log_(Log::Level::TRACE) << "::socket() sfd=" << sfd << std::endl;
+      log_(LogLevel::TRACE) << "::socket() sfd=" << sfd << std::endl;
 
       int on = 1;
       if (res->ai_family == AF_INET6) {
@@ -2210,18 +2215,18 @@ public:
       ret = ::bind(sfd, res->ai_addr, res->ai_addrlen);
       if (ret < 0) {
         int err = errno;
-        log_(Log::Level::WARNING) << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". closed socket. Try next." << std::endl;
+        log_(LogLevel::WARNING) << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". closed socket. Try next." << std::endl;
         close_socket(sfd);
         continue;
       }
-      log_(Log::Level::TRACE) << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ")." << std::endl;
+      log_(LogLevel::INFO) << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ")" << std::endl;
 
       bind_sfds_.push_back(sfd);
     }
     freeaddrinfo(res);
 
     if (bind_sfds_.empty()) {
-      int err = as_int(lwsock_errc::COULD_NOT_OPEN_AVAILABLE_SOCKET);
+      int err = as_int(LwsockErrc::COULD_NOT_OPEN_AVAILABLE_SOCKET);
       std::ostringstream oss;
       oss << callee.str() << " could not bind(2) any sockets.";
       throw LwsockException(Error(err, __LINE__, oss.str()));
@@ -2253,8 +2258,7 @@ public:
     assert(mode_ == Mode::SERVER);
     assert(!bind_sfds_.empty());
 
-    std::ostringstream callee;
-    callee << METHOD("(backlog=" << backlog << ").");
+    callee(WSMETHOD, "(backlog=" << backlog << ")");
     ScopedLog slog(callee.str());
 
     std::for_each(std::begin(bind_sfds_), std::end(bind_sfds_), [&](int sfd){
@@ -2262,10 +2266,10 @@ public:
       if (ret != 0) {
         int err = errno;
         std::ostringstream oss;
-        oss << callee.str() << " ::listen(sfd=" << sfd << ", backlog=" << backlog << ").";
+        oss << callee.str() << "::listen(sfd=" << sfd << ", backlog=" << backlog << ")";
         throw SystemErrorException(Error(err, __LINE__, oss.str()));
       }
-      log_(Log::Level::TRACE) << " ::listen(sfd=" << sfd << ", backlog=" << backlog << ")." << std::endl;
+      log_(LogLevel::INFO) << "::listen(sfd=" << sfd << ", backlog=" << backlog << ")" << std::endl;
     });
 
     return *this;
@@ -2280,15 +2284,14 @@ public:
     assert(mode_ == Mode::SERVER);
     assert(!bind_sfds_.empty());
 
-    std::ostringstream callee;
-    callee << METHOD("().");
+    callee(WSMETHOD, "()");
     ScopedLog slog(callee.str());
 
     fd_set rfds;
     FD_ZERO(&rfds);
     int maxsfd = -1;
 
-    log_(Log::Level::TRACE) << "wait sfds=";
+    log_(LogLevel::INFO) << "::pselect() wait sfds=";
     for (size_t i = 0; i < bind_sfds_.size(); ++i) {
       int sfd = bind_sfds_[i];
       FD_SET(sfd, &rfds);
@@ -2302,7 +2305,7 @@ public:
     if (ret == -1) {
       int err = errno;
       std::ostringstream oss;
-      oss << callee.str() << " ::pselect(nfds=" << nfds << ", ...).";
+      oss << callee.str() << " ::pselect(nfds=" << nfds << ", ...)";
       throw SystemErrorException(Error(err, __LINE__, oss.str()));
     }
 
@@ -2318,15 +2321,14 @@ public:
 
     struct sockaddr_storage remote = {0};
     socklen_t addrlen = sizeof remote;
+    //log_(LogLevel::INFO) << "::accept(sfd=" << sfd << ", ...)\n";
     int newsfd = ::accept(sfd, (struct sockaddr*)&remote, &addrlen);
-    log_(Log::Level::INFO) << "::accept(sfd=" << sfd << ", ...) result=" << newsfd << std::endl;
     if (newsfd < 0) {
       int err = errno;
       std::ostringstream oss;
-      oss << callee.str() << " ::accept(sfd=" << sfd << ", ...).";
+      oss << callee.str() << " ::accept(sfd=" << sfd << ", ...)";
       throw SystemErrorException(Error(err, __LINE__, oss.str()));
     }
-
     WebSocket ws(Mode::SERVER);
     ws.sfd_ = newsfd;
     ws.host_ = host_;
@@ -2335,6 +2337,7 @@ public:
     ws.query_ = query_;
     remote_ = Sockaddr(remote);
 
+    log_(LogLevel::INFO) << "::accept(sfd=" << sfd << ", ...) newsfd=" << newsfd << ", remote=" << remote_.ip() << ", port=" << remote_.port() << std::endl;
     return ws;
   }
 
@@ -2368,20 +2371,20 @@ public:
     assert(sfd_ != -1);
     assert(mode_ == Mode::SERVER);
 
-    std::ostringstream callee;
-    callee << METHOD("(timeout=" << timeout.to_string() << ").");
+    callee(WSMETHOD, "(timeout=" << timeout.to_string() << ")");
     ScopedLog slog(callee.str());
 
     std::string recved_response = recv_until_eoh(sfd_, timeout);
+    log_(LogLevel::DEBUG) << '\"' << recved_response << '\"'<< std::endl;
 
     handshake_t handshake_data;
     try {
       handshake_data = parse_handshake_msg(recved_response);
     }
     catch (LwsockException& e) {
-      int err = as_int(lwsock_errc::INVALID_HANDSHAKE);
+      int err = as_int(LwsockErrc::INVALID_HANDSHAKE);
       std::ostringstream oss;
-      oss << callee.str() << " INVALID_HANDSHAKE. send 404 and close socket=" << sfd_ << '.';
+      oss << callee.str() << " INVALID_HANDSHAKE. send 404 and close socket=" << sfd_;
       handshake_t handshake;
       handshake.first = "HTTP/1.1 400 Bad Request";
       send_res_manually(handshake);
@@ -2392,9 +2395,9 @@ public:
     CRegex regex(R"(^GET +((/[^? ]*)(\?[^ ]*)?)? *HTTP/1\.1)", 20);
     auto tmp = regex.exec(handshake_data.first);
     if (tmp.size() < 1) {
-      int err = as_int(lwsock_errc::INVALID_HANDSHAKE);
+      int err = as_int(LwsockErrc::INVALID_HANDSHAKE);
       std::ostringstream oss;
-      oss << callee.str() << " INVALID_HANDSHAKE first_line=\"" << handshake_data.first << "\". send 404 and close socket=" << sfd_ << '.';
+      oss << callee.str() << " INVALID_HANDSHAKE first_line=\"" << handshake_data.first << "\". send 404 and close socket=" << sfd_;
       handshake_t handshake;
       handshake.first = "HTTP/1.1 400 Bad Request";
       send_res_manually(handshake);
@@ -2405,9 +2408,9 @@ public:
     // if the request path differ expecting path, then respond 404.
     std::pair<std::string, std::string> path_query = split_path_query(tmp[1]);
     if (path_query.first != path_) {
-      int err = as_int(lwsock_errc::INVALID_HANDSHAKE);
+      int err = as_int(LwsockErrc::INVALID_HANDSHAKE);
       std::ostringstream oss;
-      oss << callee.str() << " INVALID_HANDSHAKE path=\"" << path_query.first << "\". require path=" << path_ << ". send 404 and close socket=" << sfd_ << '.';
+      oss << callee.str() << " INVALID_HANDSHAKE path=\"" << path_query.first << "\". require path=" << path_ << ". send 404 and close socket=" << sfd_;
       handshake_t handshake;
       handshake.first = "HTTP/1.1 400 Bad Request";
       send_res_manually(handshake);
@@ -2432,7 +2435,7 @@ public:
     }
     catch (LwsockException& e) {
       std::ostringstream oss;
-      oss << callee.str() << e.what() << " received a bad request from the client, then send 400 response and close socekt=" << sfd_ << '.';
+      oss << callee.str() << e.what() << " received a bad request from the client, then send 400 response and close socekt=" << sfd_;
       handshake_t handshake;
       handshake.first = "HTTP/1.1 400 Bad Request";
       send_res_manually(handshake);
@@ -2463,8 +2466,7 @@ public:
     assert(sfd_ != -1);
     assert(mode_ == Mode::SERVER);
 
-    std::ostringstream callee;
-    callee << METHOD("() otherheaders cnt=" << otherheaders.size() << '.');
+    callee(WSMETHOD, "() otherheaders cnt=" << otherheaders.size());
     ScopedLog slog(callee.str());
 
     handshake_t handshake;
@@ -2549,8 +2551,7 @@ public:
   /// @exception SystemErrorException
   ssize_t send_pong(const std::string& app_data)
   {
-    std::ostringstream callee;
-    callee << METHOD("(app_data=" << app_data << ").");
+    callee(WSMETHOD, "(app_data=0x" << std::hex << app_data << ")");
     ScopedLog slog(callee.str());
 
     return send_msg(Opcode::PONG, app_data.data(), app_data.size());
@@ -2563,8 +2564,7 @@ public:
   /// @exception SystemErrorException
   ssize_t send_pong(const std::vector<uint8_t>& app_data)
   {
-    std::ostringstream callee;
-    callee << METHOD("(app_data=0x" << std::hex << &app_data << ").");
+    callee(WSMETHOD, "(app_data=0x" << std::hex << &app_data << ")");
     ScopedLog slog(callee.str());
 
     return send_msg(Opcode::PONG, app_data.data(), app_data.size());
@@ -2577,8 +2577,7 @@ public:
   /// @exception SystemErrorException
   template<size_t N> ssize_t send_pong(const std::array<uint8_t, N>& app_data)
   {
-    std::ostringstream callee;
-    callee << METHOD("(app_data=0x" << std::hex << &app_data << ").");
+    callee(WSMETHOD, "(app_data=0x" << std::hex << &app_data << ")");
     ScopedLog slog(callee.str());
 
     return send_msg(Opcode::PONG, app_data.data(), app_data.size());
@@ -2601,8 +2600,7 @@ public:
   /// @exception LwsockException, SystemErrorException
   void send_close(const uint16_t status_code, const std::string& reason, const Timespec& timeout)
   {
-    std::ostringstream callee;
-    callee << METHOD("(status_code=" << status_code << ", reason=\"" << reason << "\", timeout=" << timeout.to_string() << ").");
+    callee(WSMETHOD, "(status_code=" << status_code << ", reason=\"" << reason << "\", timeout=" << timeout.to_string() << ")");
     ScopedLog slog(callee.str());
 
     std::vector<uint8_t> appdata(sizeof status_code + reason.size());
@@ -2705,7 +2703,7 @@ public:
   ///
   /// @param [in] lvl: log level
   /// @retval reference of *this
-  WebSocket& loglevel(Log::Level lvl)
+  WebSocket& loglevel(LogLevel lvl)
   {
     log_.level(lvl);
     return *this;
@@ -2714,7 +2712,7 @@ public:
   /// @brief get now log level
 
   /// @retval now log level
-  Log::Level loglevel()
+  LogLevel loglevel()
   {
     return log_.level();
   }
@@ -2739,11 +2737,13 @@ private:
   void close_socket(int& sfd)
   {
     if (sfd != -1) {
-      std::ostringstream callee;
-      callee << METHOD("(sfd=" << sfd << ").");
-      ScopedLog slog(callee.str());
+      callee(WSMETHOD, "(sfd=" << sfd << ")");
+      ScopedLog slog(LogLevel::TRACE, callee.str());
 
-      close(sfd);
+      log_(LogLevel::INFO) << "::close(sfd=" << sfd << ')' << std::endl;
+
+      ::close(sfd);
+
       sfd = -1;
 
       if (!recved_rest_buff_.empty()) {
@@ -2756,17 +2756,30 @@ private:
   ///
   /// @param [in out] sfd: sockfd
   /// @param [in] timeout: Timespec instance
-  /// @exception LwsockException, SystemErrorException
+  /// @exception SystemErrorException
   void close_websocket(int& sfd, const Timespec& timeout)
   {
-    std::ostringstream callee;
-    callee << METHOD("(sfd=" << sfd << ", timeout=" << timeout.to_string() << ").");
-    ScopedLog slog(callee.str());
+    callee(WSMETHOD, "(sfd=" << sfd << ", timeout=" << timeout.to_string() << ")");
+    ScopedLog slog(LogLevel::TRACE, callee.str());
 
-    ::shutdown(sfd, SHUT_WR);
+    if (sfd == -1) {
+      return;
+    }
 
-    uint8_t buff[16] = {0};
-    recv_with_timeout(sfd, buff, sizeof buff, timeout);
+    if (::shutdown(sfd, SHUT_WR) == 0) {
+      uint8_t buff[16] = {0};
+      try {
+        recv_with_timeout(sfd, buff, sizeof buff, timeout);
+      }
+      catch (SystemErrorException& see) {
+        if (see.code() == EBADF || see.code() == ECONNREFUSED) {
+          ; // nop
+        }
+        else {
+          throw see;
+        }
+      }
+    }
     close_socket(sfd);
   }
 
@@ -2777,9 +2790,8 @@ private:
   /// @exception SystemErrorException
   std::string send_ohandshake(const handshake_t& handshake_data)
   {
-    std::ostringstream callee;
-    callee << METHOD("(handshake_data=" << std::hex << &handshake_data << ").");
-    ScopedLog slog(callee.str());
+    callee(WSMETHOD, "(handshake_data=" << std::hex << &handshake_data << ")");
+    ScopedLog slog(LogLevel::TRACE, callee.str());
 
     std::string first_line = handshake_data.first;
     headers_t headers = handshake_data.second;
@@ -2790,10 +2802,12 @@ private:
       oss << header.first << ": " << header.second << EOL;
     }
     oss << EOL;
-    log_(Log::Level::TRACE) << "\"" << oss.str() << "\" size=" << std::dec << oss.str().size() << std::endl;
+    //log_(LogLevel::TRACE) << "\"" << oss.str() << "\" size=" << std::dec << oss.str().size() << std::endl;
+    log_(LogLevel::DEBUG) << '\"' << oss.str() << '\"' << std::endl;
 
     size_t ret = send_fill(sfd_, oss.str().c_str(), oss.str().size());
     assert(ret == oss.str().size());
+    log_(LogLevel::DEBUG) << "sent size=" << oss.str().size() << std::endl;
     return oss.str();
   }
 
@@ -2810,15 +2824,14 @@ private:
     assert(sfd_ != -1);
     assert(timeout >= -1);
 
-    std::ostringstream callee;
-    callee << METHOD("(timeout=" << timeout.to_string() << ").");
-    ScopedLog slog(callee.str());
+    callee(WSMETHOD, "(timeout=" << timeout.to_string() << ")");
+    ScopedLog slog(LogLevel::TRACE, callee.str());
 
     std::pair<T, int32_t> result{{}, 0};
     AHead ahead;
     bool txtflg = false;
     do {
-      log_(Log::Level::TRACE) << "  [[ receive a part of header ..." << std::endl;
+      log_(LogLevel::TRACE) << "  [[ receive a part of header ..." << std::endl;
       ssize_t ret = recv_fill(sfd_, ahead.data_ptr(), ahead.size(), timeout);
       if (ret == 0) { // socket is closed.
         result.first.clear();
@@ -2826,7 +2839,7 @@ private:
         close_socket(sfd_);
         return result;
       }
-      log_(Log::Level::TRACE) << "  ]] receive a part of header...result="
+      log_(LogLevel::TRACE) << "  ]] receive a part of header...result="
         << " raw=0x" << std::hex << std::setw(4) << std::setfill('0') << ahead.data() << std::dec
         << ", fin=" << ahead.fin() << ", rsv1=" << ahead.rsv1() << ", rsv2=" << ahead.rsv2() << ", rsv3=" << ahead.rsv3()
         << ", opcode=0x" << std::hex << std::setw(2) << std::setfill('0') << as_int(ahead.opcode()) << std::setw(0) << std::dec
@@ -2838,10 +2851,10 @@ private:
         txtflg = true;
       }
       if (ahead.rsv1() != 0 || ahead.rsv2() != 0 || ahead.rsv3() != 0) {
-        int err = as_int(lwsock_errc::FRAME_ERROR);
+        int err = as_int(LwsockErrc::FRAME_ERROR);
         std::ostringstream oss;
-        oss << callee.str() << " rsv1=" << ahead.rsv1() << ", rsv2=" << ahead.rsv2() << ", rsv3=" << ahead.rsv3() << '.';
-        log_(Log::Level::WARNING) << oss.str() << std::endl;
+        oss << callee.str() << " rsv1=" << ahead.rsv1() << ", rsv2=" << ahead.rsv2() << ", rsv3=" << ahead.rsv3();
+        log_(LogLevel::WARNING) << oss.str() << std::endl;
         close_websocket(sfd_, timeout);
         throw LwsockException(Error(err, __LINE__, oss.str()));
       }
@@ -2881,12 +2894,12 @@ private:
         payload_len = ahead.payload_len();
         break;
       }
-      log_(Log::Level::TRACE) << "  eventually payload len=" << payload_len << std::endl;
+      log_(LogLevel::TRACE) << "  eventually payload len=" << payload_len << std::endl;
 
       if ((mode_ == Mode::SERVER && ahead.mask() == 0) || (mode_ == Mode::CLIENT && ahead.mask() == 1)) {
-        int err = as_int(lwsock_errc::BAD_MESSAGE);
+        int err = as_int(LwsockErrc::BAD_MESSAGE);
         std::ostringstream oss;
-        oss << callee.str() << "received invalid maskbit=" << ahead.mask() << ", then send CLOSE 1002 frame, then close socket=" << sfd_ << '.';
+        oss << callee.str() << "received invalid maskbit=" << ahead.mask() << ", then send CLOSE 1002 frame, then close socket=" << sfd_;
         send_close(1002);
         close_socket(sfd_);
         throw LwsockException(Error(err, __LINE__, oss.str()));
@@ -2894,10 +2907,10 @@ private:
 
       uint32_t masking_key = 0;
       if (ahead.mask()) {
-        log_(Log::Level::TRACE) << "  [[ receive masking key..." << std::endl;
+        log_(LogLevel::TRACE) << "  [[ receive masking key..." << std::endl;
         ret = recv_fill(sfd_, &masking_key, sizeof masking_key, timeout);
         // TODO ret == 0 case
-        log_(Log::Level::TRACE) << "  ]] receive masking key...raw=0x" << std::hex << std::setw(8) << std::setfill('0') << masking_key << std::endl;
+        log_(LogLevel::TRACE) << "  ]] receive masking key...raw=0x" << std::hex << std::setw(8) << std::setfill('0') << masking_key << std::endl;
       }
 
       // receive payload data
@@ -2921,12 +2934,12 @@ private:
 
       case Opcode::PING:
         {
-          log_(Log::Level::INFO) << "received Ping frame. app_data_sz=" << payload_data.size() << ", then send PONG" << std::endl;
+          log_(LogLevel::INFO) << "received Ping frame. app_data_sz=" << payload_data.size() << ", then send PONG" << std::endl;
           send_pong(payload_data);
         }
         continue;
       case Opcode::PONG:
-        log_(Log::Level::INFO) << "received Pong frame. app_data_sz=" << payload_data.size() << std::endl;
+        log_(LogLevel::INFO) << "received Pong frame. app_data_sz=" << payload_data.size() << std::endl;
         continue;
       case Opcode::CLOSE:
         {
@@ -2936,12 +2949,12 @@ private:
             uint16_t be_scode = 0; // big endian status code
             ::memcpy(&be_scode, payload_data.data(), sizeof be_scode);
             scode = ntohs(be_scode); // status code
-            log_(Log::Level::INFO) << "received CLOSE frame from the remote, status_code=" << std::dec << scode << ", then send CLOSE" << std::endl;
+            log_(LogLevel::INFO) << "received CLOSE frame from the remote, status_code=" << std::dec << scode << ", then send CLOSE" << std::endl;
             result.first.clear();
             result.second = scode;
           }
           else {
-            log_(Log::Level::INFO) << "received CLOSE frame from the remote, status_code is none," << ", then send CLOSE" << std::endl;
+            log_(LogLevel::INFO) << "received CLOSE frame from the remote, status_code is none," << ", then send CLOSE" << std::endl;
             result.first.clear();
             result.second = 1005;
             reason = "RFC6455 7.1.5. \"If this Close control frame contains no status code, The WebSocket Connection Close Code is considered to be 1005.\"";
@@ -2996,9 +3009,8 @@ private:
     assert(sfd_ != -1);
     assert(opcode == Opcode::TEXT || opcode == Opcode::BINARY || opcode == Opcode::CLOSE || opcode == Opcode::PING);
 
-    std::ostringstream callee;
-    callee << METHOD("(opcode=0x" << std::hex << std::setw(2) << std::setfill('0') << as_int(opcode) << std::setw(0) << ", payload_data_org=" << payload_data_org << ", payload_data_sz=" << std::dec << payload_data_sz << ").");
-    ScopedLog slog(callee.str());
+    callee(WSMETHOD, "(opcode=0x" << std::hex << std::setw(2) << std::setfill('0') << as_int(opcode) << std::setw(0) << ", payload_data_org=" << payload_data_org << ", payload_data_sz=" << std::dec << payload_data_sz << ")");
+    ScopedLog slog(LogLevel::TRACE, callee.str());
 
     AHead ahead;
     ahead.fin(1);
@@ -3073,9 +3085,8 @@ private:
   /// @exception SystemErrorException
   ssize_t send_fill(int sfd, const void* buff, const size_t buffsz)
   {
-    std::ostringstream callee;
-    callee << METHOD("(sfd=" << sfd << ", buff=" << std::hex << buff << ", buffsz=" << std::dec << buffsz << ").");
-    ScopedLog slog(callee.str());
+    callee(WSMETHOD, "(sfd=" << sfd << ", buff=" << std::hex << buff << ", buffsz=" << std::dec << buffsz << ")");
+    ScopedLog slog(LogLevel::TRACE, callee.str());
 
     const uint8_t* ptr = static_cast<const uint8_t*>(buff);
     size_t sent_sz = 0;
@@ -3085,7 +3096,7 @@ private:
       if (ret < 0) {
         int err = errno;
         std::ostringstream oss;
-        oss << callee.str() << " ::send(sfd=" << sfd << ", ...).";
+        oss << callee.str() << " ::send(sfd=" << sfd << ", ...)";
         throw SystemErrorException(Error(err, __LINE__, oss.str()));
       }
 
@@ -3109,12 +3120,11 @@ private:
   /// @param [in] timeout: Timespec instance
   /// @reval > 0 received size
   /// @reval ==0 socket was closed
-  /// @exception LwsockException, SystemErrorException
+  /// @exception SystemErrorException
   ssize_t recv_with_timeout(int sfd, void* buff, size_t buffsz, const Timespec& timeout)
   {
-    std::ostringstream callee;
-    callee << METHOD("(sfd=" << sfd << ", buff=" << std::hex << buff << ", buffsz=" << std::dec << buffsz << ", timeout=" << timeout.to_string() << ").");
-    ScopedLog slog(callee.str());
+    callee(WSMETHOD, "(sfd=" << sfd << ", buff=" << std::hex << buff << ", buffsz=" << std::dec << buffsz << ", timeout=" << timeout.to_string() << ")");
+    ScopedLog slog(LogLevel::TRACE, callee.str());
 
     fd_set rfd;
     FD_ZERO(&rfd);
@@ -3122,7 +3132,7 @@ private:
     int nfds = sfd + 1;
     int ret = pselect(nfds, &rfd, nullptr, nullptr, timeout.ptr(), nullptr);
     if (ret == 0) {
-      int err = as_int(lwsock_errc::TIMED_OUT);
+      int err = as_int(LwsockErrc::TIMED_OUT);
       std::ostringstream oss;
       oss << callee.str() << " ::peslect(nfds=" << nfds << ", ...) TIMED OUT.";
       throw SystemErrorException(Error(err, __LINE__, oss.str()));
@@ -3130,7 +3140,7 @@ private:
     else if (ret == -1) {
       int err = errno;
       std::ostringstream oss;
-      oss << callee.str() << " ::pselect(nfds=" << nfds << ", ...) errno=" << err << '.';
+      oss << callee.str() << " ::pselect(nfds=" << nfds << ", ...) errno=" << err;
       throw SystemErrorException(Error(err, __LINE__, oss.str()));
     }
 
@@ -3159,15 +3169,14 @@ private:
   {
     assert(sfd != -1);
 
-    std::ostringstream callee;
-    callee << METHOD("(sfd=" << sfd << ", buff=" << std::hex << buff << ", expect_sz=" << std::dec << expect_sz << ", timeout=" << timeout.to_string() << ").");
-    ScopedLog slog(callee.str());
+    callee(WSMETHOD, "(sfd=" << sfd << ", buff=" << std::hex << buff << ", expect_sz=" << std::dec << expect_sz << ", timeout=" << timeout.to_string() << ")");
+    ScopedLog slog(LogLevel::TRACE, callee.str());
 
     uint8_t* ptr = static_cast<uint8_t*>(buff);
     size_t recved_sz = 0;
 
     // if received data when opening handshake is rest, then copy it
-    log_(Log::Level::TRACE) << "    recved_rest_buff.size()=" << recved_rest_buff_.size() << std::endl;
+    log_(LogLevel::TRACE) << "    recved_rest_buff.size()=" << recved_rest_buff_.size() << std::endl;
     if (!recved_rest_buff_.empty()) {
       size_t sz = recved_rest_buff_.size();
       if (sz > expect_sz) {
@@ -3208,9 +3217,8 @@ private:
   {
     assert(recved_rest_buff_.empty());
 
-    std::ostringstream callee;
-    callee << METHOD("(sfd=" << sfd << ", timeout=" << timeout.to_string() << ").");
-    ScopedLog slog(callee.str());
+    callee(WSMETHOD, "(sfd=" << sfd << ", timeout=" << timeout.to_string() << ")");
+    ScopedLog slog(LogLevel::TRACE, callee.str());
 
     constexpr std::string::size_type NPOS = std::string::npos;
     std::string recved_msg;
@@ -3221,7 +3229,7 @@ private:
       char tmp[512] = {0};
       ssize_t ret = recv_with_timeout(sfd, tmp, (sizeof tmp) -1, timeout); // -1 is that tmp[] has at least '\0'.
       if (ret == 0) {
-        int err = as_int(lwsock_errc::SOCKET_CLOSED);
+        int err = as_int(LwsockErrc::SOCKET_CLOSED);
         std::ostringstream oss;
         oss << callee.str() << " socket was closed from the remote.";
         throw LwsockException(Error(err, __LINE__, oss.str()));
@@ -3241,7 +3249,7 @@ private:
       std::copy(std::begin(recved_msg) + pos + eohsz, std::end(recved_msg), std::back_inserter(recved_rest_buff_));
     }
 
-    log_(Log::Level::TRACE) << result << std::endl;
+    log_(LogLevel::TRACE) << result << std::endl;
 
     return result;
   }
@@ -3253,9 +3261,8 @@ private:
   /// @exception LwsockException, SystemErrorException
   void send_close(const Timespec& timeout)
   {
-    std::ostringstream callee;
-    callee << METHOD("(timeout=" << timeout.to_string() << ").");
-    ScopedLog slog(callee.str());
+    callee(WSMETHOD, "(timeout=" << timeout.to_string() << ")");
+    ScopedLog slog(LogLevel::TRACE, callee.str());
     send_msg(Opcode::CLOSE, nullptr, 0);
     close_websocket(sfd_, timeout);
   }
@@ -3266,9 +3273,8 @@ private:
   /// @retval splited headers
   std::vector<std::pair<std::string, std::string>> split_headers(const std::string& lines_msg)
   {
-    std::ostringstream callee;
-    callee << METHOD("(...).");
-    ScopedLog slog(callee.str());
+    callee(WSMETHOD, "(...)");
+    ScopedLog slog(LogLevel::TRACE, callee.str());
 
     using size_type = std::string::size_type;
     constexpr size_type NPOS(std::string::npos);
@@ -3282,7 +3288,7 @@ private:
       size_type p = line.find_first_of(':');
       std::string header_name = line.substr(0, p);
       std::string value = p == NPOS ? "" : trim(line.substr(p+1));
-      log_(Log::Level::TRACE) << "  header_name=\"" << header_name << "\", value=\"" << value << '\"' << std::endl;
+      log_(LogLevel::TRACE) << "  header_name=\"" << header_name << "\", value=\"" << value << '\"' << std::endl;
       headers.push_back(std::make_pair(std::move(header_name), std::move(value)));
     }
 
@@ -3295,13 +3301,12 @@ private:
   /// @exception LwsockException
   void check_response_headers(const std::vector<std::pair<std::string, std::string>>& hv_lines)
   {
-    std::ostringstream callee;
-    callee << METHOD("(\n");
+    callee(WSMETHOD, "(\n");
     for (auto& e : hv_lines) {
       callee << "    " << e.first << ": " << e.second << '\n';
     }
-    callee << ").";
-    ScopedLog slog(callee.str());
+    callee << ")";
+    ScopedLog slog(LogLevel::TRACE, callee.str());
 
     // check "Upgrade" header
     {
@@ -3315,12 +3320,12 @@ private:
       if (ite == std::end(hv_lines)) {
         std::ostringstream oss;
         oss << " \"" << header_name << "\" header is not found.";
-        throw LwsockException(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
+        throw LwsockException(Error(as_int(LwsockErrc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
       if (str2lower(ite->second) != "websocket") {
         std::ostringstream oss;
         oss << " \"" << header_name << ": " << ite->second << "\" dose not include \"websocket\".";
-        throw LwsockException(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
+        throw LwsockException(Error(as_int(LwsockErrc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
     }
 
@@ -3336,14 +3341,14 @@ private:
       if (ite == std::end(hv_lines)) {
         std::ostringstream oss;
         oss << " \"" << header_name << "\" header is not found.";
-        throw LwsockException(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
+        throw LwsockException(Error(as_int(LwsockErrc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
       std::string str = str2lower(ite->second);
       std::string token = str2lower("Upgrade");
       if (str.find(token) == std::string::npos) {
         std::ostringstream oss;
         oss << " \"" << header_name << ": " << ite->second << "\" dose not include \"Upgrade\".";
-        throw LwsockException(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
+        throw LwsockException(Error(as_int(LwsockErrc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
     }
 
@@ -3359,13 +3364,13 @@ private:
       if (ite == std::end(hv_lines)) {
         std::ostringstream oss;
         oss << " \"" << header_name << "\" header is not found.";
-        throw LwsockException(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
+        throw LwsockException(Error(as_int(LwsockErrc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
       std::string key = make_key(nonce_, GUID);
       if (ite->second != key) {
         std::ostringstream oss;
         oss << " invalid \"Sec-WebSocket-Accept: " << ite->second << '\"';
-        throw LwsockException(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), __LINE__, oss.str()));
+        throw LwsockException(Error(as_int(LwsockErrc::INVALID_HANDSHAKE), __LINE__, oss.str()));
       }
     }
 
@@ -3378,13 +3383,12 @@ private:
   /// @exception LwsockException
   void check_request_headers(const std::vector<std::pair<std::string, std::string>>& hv_lines)
   {
-    std::ostringstream callee;
-    callee << METHOD("(\n");
+    callee(WSMETHOD, "(\n");
     for (auto& e : hv_lines) {
       callee << "    \"" << e.first << "\": \"" << e.second << "\"\n";
     }
-    callee << ").";
-    ScopedLog slog(callee.str());
+    callee << ")";
+    ScopedLog slog(LogLevel::TRACE, callee.str());
     slog.clear() << METHOD("(...)");
 
     // check "Host" header existing
@@ -3399,7 +3403,7 @@ private:
       if (ite == std::end(hv_lines)) {
         std::ostringstream oss;
         oss << " \"Host\" header is not found.";
-        throw LwsockException(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), oss.str()));
+        throw LwsockException(Error(as_int(LwsockErrc::INVALID_HANDSHAKE), oss.str()));
       }
     }
 
@@ -3414,7 +3418,7 @@ private:
       if (values.empty()) {
         std::ostringstream oss;
         oss << " \"Upgrade\" header is not found.";
-        throw LwsockException(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), oss.str()));
+        throw LwsockException(Error(as_int(LwsockErrc::INVALID_HANDSHAKE), oss.str()));
       }
       auto ite = std::find_if(std::begin(values), std::end(values), [](const std::string& value){
         auto str = str2lower(value);
@@ -3428,7 +3432,7 @@ private:
       if (ite == std::end(values)) {
         std::ostringstream oss;
         oss << " \"Upgrade\" header does not have the value of \"websocket\".";
-        throw LwsockException(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), oss.str()));
+        throw LwsockException(Error(as_int(LwsockErrc::INVALID_HANDSHAKE), oss.str()));
       }
     }
 
@@ -3443,7 +3447,7 @@ private:
       if (values.empty()) {
         std::ostringstream oss;
         oss << " \"Connection\" header is not found.";
-        throw LwsockException(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), oss.str()));
+        throw LwsockException(Error(as_int(LwsockErrc::INVALID_HANDSHAKE), oss.str()));
       }
       auto ite = std::find_if(std::begin(values), std::end(values), [](const std::string& value){
         std::string str = str2lower(value);
@@ -3458,7 +3462,7 @@ private:
       if (ite == std::end(values)) {
         std::ostringstream oss;
         oss << " \"Connection\" header does not include the value of \"Upgrade\".";
-        throw LwsockException(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), oss.str()));
+        throw LwsockException(Error(as_int(LwsockErrc::INVALID_HANDSHAKE), oss.str()));
       }
     }
 
@@ -3475,13 +3479,13 @@ private:
       if (sec_websocket_key_line == std::end(hv_lines)) {
         std::ostringstream oss;
         oss << " \"Sec-WebSocket-Key\" header is not found.";
-        throw LwsockException(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), oss.str()));
+        throw LwsockException(Error(as_int(LwsockErrc::INVALID_HANDSHAKE), oss.str()));
       }
       std::vector<uint8_t> value = b64decode(sec_websocket_key_line->second);
       if (value.size() != 16) {
         std::ostringstream oss;
         oss << " \"Sec-WebSocket-Key\" header is invalid size: " << std::to_string(value.size());
-        throw LwsockException(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), oss.str()));
+        throw LwsockException(Error(as_int(LwsockErrc::INVALID_HANDSHAKE), oss.str()));
       }
       nonce_ = sec_websocket_key_line->second;
     }
@@ -3497,7 +3501,7 @@ private:
       if (values.empty()) {
         std::ostringstream oss;
         oss << " \"Sec-WebSocket-Version\" header is not found.";
-        throw LwsockException(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), oss.str()));
+        throw LwsockException(Error(as_int(LwsockErrc::INVALID_HANDSHAKE), oss.str()));
       }
       auto ite = std::find_if(std::begin(values), std::end(values), [](const std::string& value){
         std::string str = str2lower(value);
@@ -3512,7 +3516,7 @@ private:
       if (ite == std::end(values)) {
         std::ostringstream oss;
         oss << " \"Sec-WebSocket-Version\" header does not include \"13\".";
-        throw LwsockException(Error(as_int(lwsock_errc::INVALID_HANDSHAKE), oss.str()));
+        throw LwsockException(Error(as_int(LwsockErrc::INVALID_HANDSHAKE), oss.str()));
       }
     }
   }
@@ -3556,7 +3560,7 @@ private:
     using size_type = std::string::size_type;
     size_type pos = handshake_msg.find(EOL);
     if (pos == std::string::npos) {
-      int err = as_int(lwsock_errc::INVALID_HANDSHAKE);
+      int err = as_int(LwsockErrc::INVALID_HANDSHAKE);
       std::ostringstream oss;
       oss << "invliad handshake=\"" << handshake_msg << '\"';
       throw LwsockException(Error(err, oss.str()));
@@ -3604,6 +3608,6 @@ private:
 } // namespace lwsock
 
 namespace std {
-template<> struct is_error_condition_enum<lwsock::lwsock_errc> : true_type {};
+template<> struct is_error_condition_enum<lwsock::LwsockErrc> : true_type {};
 }
 

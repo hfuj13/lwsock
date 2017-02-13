@@ -13,8 +13,8 @@ int main()
 {
   WebSocket ws(WebSocket::Mode::CLIENT);
   ws.ostream4log(cout);
-  ws.loglevel(Log::Level::DEBUG);
-  //ws.loglevel(Log::Level::ERROR);
+  ws.loglevel(LogLevel::DEBUG);
+  //ws.loglevel(LogLevel::ERROR);
   cout << as_int(ws.loglevel()) << endl;
   //ws.connect("ws://[::1]:10000");
   //ws.connect("ws://127.0.0.1:10000");
