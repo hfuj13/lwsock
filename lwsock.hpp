@@ -420,6 +420,11 @@ public:
     return errcode_;
   }
 
+  void prefix(const std::string& prefix)
+  {
+    what_ = prefix + what_;
+  }
+
   /// @brief get reason string
   ///
   /// @retval reason string
@@ -445,6 +450,7 @@ public:
 
   const char* what() const noexcept override
   {
+    error_.prefix("CRegexException: ");
     return error_.what();
   }
 
@@ -456,10 +462,10 @@ public:
     return error_.code();
   }
 private:
-  Error error_;
+  mutable Error error_;
 };
 
-class GetaddrinfoException: public std::exception {
+class GetaddrinfoException final: public std::exception {
 public:
   GetaddrinfoException() = delete;
   GetaddrinfoException(const GetaddrinfoException&) = default;
@@ -471,6 +477,7 @@ public:
 
   const char* what() const noexcept override
   {
+    error_.prefix("GetaddrinfoException: ");
     return error_.what();
   }
 
@@ -482,7 +489,7 @@ public:
     return error_.code();
   }
 private:
-  Error error_;
+  mutable Error error_;
 };
 
 /// @brief libray error exception class
@@ -498,6 +505,7 @@ public:
 
   const char* what() const noexcept override
   {
+    error_.prefix("LwsockException: ");
     return error_.what();
   }
 
@@ -509,7 +517,7 @@ public:
     return error_.code();
   }
 private:
-  Error error_;
+  mutable Error error_;
 };
 
 /// @brief system_error exception class. this is a wrapper class because i want to output logs.
@@ -526,6 +534,7 @@ public:
 
   const char* what() const noexcept override
   {
+    error_.prefix("SystemErrorException: ");
     return error_.what();
   }
 
@@ -537,7 +546,7 @@ public:
     return error_.code();
   }
 private:
-  Error error_;
+  mutable Error error_;
 };
 
 /// @brief regex(3) wrapper
@@ -1594,7 +1603,7 @@ private:
   std::unique_ptr<struct timespec> tm_ = nullptr;
 };
 
-#define METHOD(arg) "WebSocket::" << __func__ << arg
+//#define METHOD(arg) "WebSocket::" << __func__ << arg
 #define WSMETHOD "WebSocket::" << __func__
 
 /// @brierf WebSocket class
@@ -1668,6 +1677,441 @@ public:
     remote_ = std::move(rhs.remote_);
 
     return *this;
+  }
+
+  /// @brief bind the ip address and port
+  ///
+  /// @param [in] uri: bind uri. <br>
+  ///     uri ::= "ws://" host (":" port)? path ("?" query)? <br>
+  ///     host ::= hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
+  ///     IPv6_colon_hex must be enclosed '[' and ']'.
+  /// @retval reference of *this
+  /// @exception CRegexException, GetaddrinfoException, LwsockExrepss
+  WebSocket& bind(const std::string& uri)
+  {
+    return bind(uri, AF_UNSPEC);
+  }
+
+  /// @brief bind the ip address and port
+  ///
+  /// @param [in] uri: bind uri. <br>
+  ///     uri ::= "ws://" host (":" port)? path ("?" query)? <br>
+  ///     host ::= hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
+  ///     IPv6_colon_hex must be enclosed '[' and ']'.
+  /// @pram [in] af: AF_INET, AF_INET6, AF_UNSPEC <br>
+  ///     if you use hostname and want to specify IPv6 (or IPv4) only, then you should set AF_INET6 (or AF_INET) to af argument
+  /// @retval reference of *this
+  /// @exception CRegexException, GetaddrinfoException, LwsockExrepss
+  WebSocket& bind(const std::string& uri, int af)
+  {
+    assert(!uri.empty());
+    assert(sfd_ == -1);
+
+    callee(WSMETHOD, "(uri=\"" << uri << "\", af=" << af2str(af) << ")");
+    ScopedLog slog(callee.str());
+
+    if (mode_ != Mode::SERVER) {
+      int err = as_int(LwsockErrc::INVALID_MODE);
+      std::ostringstream oss;
+      oss << callee.str() << " invalid mode. expect Mode::SERVER, actual Mode::CLIENT.";
+      throw LwsockException(Error(err, __LINE__, oss.str()));
+    }
+
+    if (uri.empty()) {
+      int err = as_int(LwsockErrc::INVALID_PARAM);
+      std::ostringstream oss;
+      oss << callee.str() << " invalid uri.";
+      throw LwsockException(Error(err, __LINE__, oss.str()));
+    }
+
+    if (af != AF_UNSPEC && af != AF_INET && af != AF_INET6) {
+      int err = as_int(LwsockErrc::INVALID_PARAM);
+      std::ostringstream oss;
+      oss << callee.str() << " invalid af=" << af2str(af);
+      throw LwsockException(Error(err, __LINE__, oss.str()));
+    }
+
+    std::pair<std::string, std::string> host_port;
+    std::pair<std::string, std::string> hostport_pathquery;
+    try {
+      // split into host_port part and path_query part.
+      hostport_pathquery = split_hostport_pathquery(uri);
+
+      // split into host part and port number part.
+      host_port = split_host_port(hostport_pathquery.first);
+    }
+    catch (LwsockException& e) {
+      int err = as_int(LwsockErrc::INVALID_PARAM);
+      std::ostringstream oss;
+      oss << callee.str() << " invalid uri.";
+      throw LwsockException(Error(err, __LINE__, oss.str()));
+    }
+
+    // split into path part and query part.
+    std::pair<std::string, std::string> path_query = split_path_query(hostport_pathquery.second);
+    path_ = std::move(path_query.first);
+    query_ = std::move(path_query.second);
+
+    host_ = host_port.first;
+    try {
+      port_ = host_port.second.empty() ? 80 : std::stoi(host_port.second);
+    }
+    catch (std::invalid_argument& e) {
+      int err = as_int(LwsockErrc::INVALID_PARAM);
+      std::ostringstream oss;
+      oss << callee.str() << " invalid port number=" << host_port.second;
+      throw LwsockException(Error(err, __LINE__, oss.str()));
+    }
+    if (port_ > 65535) {
+      int err = as_int(LwsockErrc::INVALID_PARAM);
+      std::ostringstream oss;
+      oss << callee.str() << " invalid port number=" << host_port.second;
+      throw LwsockException(Error(err, __LINE__, oss.str()));
+    }
+
+    log_(LogLevel::INFO)
+        << "host_=\"" << host_ << '\"' << ", port=" << port_ << ", path_=\"" << path_ << '\"' << ", query=\"" << query_ << '\"'
+        << std::endl
+        ;
+
+    struct addrinfo hints = {0};
+    struct addrinfo* res0 = nullptr;
+    struct addrinfo* res = nullptr;
+    hints.ai_flags += is_numerichost(host_) ? AI_NUMERICHOST : hints.ai_flags;
+    hints.ai_family
+      = af == AF_INET ? AF_INET
+      : af == AF_INET6 ? AF_INET6
+      : AF_UNSPEC
+      ;
+    hints.ai_socktype = SOCK_STREAM;
+
+    int ret = ::getaddrinfo(host_.c_str(), std::to_string(port_).c_str(), &hints, &res0);
+    if (ret != 0) {
+      int err = ret;
+      std::ostringstream oss;
+      oss << callee.str() << " getaddrinfo(node=\"" << host_ << "\", port=" << port_ << ")";
+      throw GetaddrinfoException(Error(err, __LINE__, oss.str()));
+    }
+
+    for (res = res0; res != nullptr; res = res->ai_next) {
+      int sfd = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+      if (sfd < 0) {
+        int err = errno;
+        log_(LogLevel::WARNING) << "::socket(" << res->ai_family << ", " << res->ai_socktype << ", " << res->ai_protocol << ") error=" << err << ". " << strerror(err) << ". Try next." << std::endl;
+        continue;
+      }
+      log_(LogLevel::TRACE) << "::socket() sfd=" << sfd << std::endl;
+
+      int on = 1;
+      if (res->ai_family == AF_INET6) {
+        setsockopt(sfd, IPPROTO_IPV6, IPV6_V6ONLY, &on, sizeof on);
+      }
+      setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof on);
+      setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof on);
+#if defined(SO_REUSEPORT)
+      setsockopt(sfd, SOL_SOCKET, SO_REUSEPORT, &on, sizeof on);
+#endif
+
+      Sockaddr saddr(res->ai_addr, res->ai_addrlen);
+      ret = ::bind(sfd, res->ai_addr, res->ai_addrlen);
+      if (ret < 0) {
+        int err = errno;
+        log_(LogLevel::WARNING) << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". closed socket. Try next." << std::endl;
+        close_socket(sfd);
+        continue;
+      }
+      log_(LogLevel::INFO) << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ")" << std::endl;
+
+      bind_sfds_.push_back(sfd);
+    }
+    freeaddrinfo(res);
+
+    if (bind_sfds_.empty()) {
+      int err = as_int(LwsockErrc::COULD_NOT_OPEN_AVAILABLE_SOCKET);
+      std::ostringstream oss;
+      oss << callee.str() << " could not bind(2) any sockets.";
+      throw LwsockException(Error(err, __LINE__, oss.str()));
+    }
+
+    return *this;
+  }
+
+  /// @brief listen socket
+  ///
+  /// @param [in] backlog: listen(2)'s backlog
+  /// @retval reference of *this
+  /// @exception SystemErrorException
+  WebSocket& listen(int backlog)
+  {
+    assert(mode_ == Mode::SERVER);
+    assert(!bind_sfds_.empty());
+
+    callee(WSMETHOD, "(backlog=" << backlog << ")");
+    ScopedLog slog(callee.str());
+
+    std::for_each(std::begin(bind_sfds_), std::end(bind_sfds_), [&](int sfd){
+      int ret = ::listen(sfd, backlog);
+      if (ret != 0) {
+        int err = errno;
+        std::ostringstream oss;
+        oss << callee.str() << "::listen(sfd=" << sfd << ", backlog=" << backlog << ")";
+        throw SystemErrorException(Error(err, __LINE__, oss.str()));
+      }
+      log_(LogLevel::INFO) << "::listen(sfd=" << sfd << ", backlog=" << backlog << ")" << std::endl;
+    });
+
+    return *this;
+  }
+
+  /// @brief accept socket
+  ///
+  /// @retval new WebSocket instance
+  /// @exception LwsockException, SystemErrorException
+  WebSocket accept()
+  {
+    assert(mode_ == Mode::SERVER);
+    assert(!bind_sfds_.empty());
+
+    callee(WSMETHOD, "()");
+    ScopedLog slog(callee.str());
+
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    int maxsfd = -1;
+
+    log_(LogLevel::INFO) << "::pselect() wait sfds=";
+    for (size_t i = 0; i < bind_sfds_.size(); ++i) {
+      int sfd = bind_sfds_[i];
+      FD_SET(sfd, &rfds);
+      maxsfd = std::max(maxsfd, sfd);
+      log_ << sfd << (i != bind_sfds_.size()-1 ? "," : "");
+    }
+    log_ << '\n' << std::flush;
+
+    int nfds = maxsfd + 1;
+    int ret = pselect(nfds, &rfds, nullptr, nullptr, nullptr, nullptr);
+    if (ret == -1) {
+      int err = errno;
+      std::ostringstream oss;
+      oss << callee.str() << " ::pselect(nfds=" << nfds << ", ...)";
+      throw SystemErrorException(Error(err, __LINE__, oss.str()));
+    }
+
+    auto ite = std::find_if(std::begin(bind_sfds_), std::end(bind_sfds_), [&rfds](int sfd){
+        if (FD_ISSET(sfd, &rfds)) {
+          return true;
+        }
+        else {
+          return false;
+        }
+    });
+    int sfd = *ite;
+
+    struct sockaddr_storage remote = {0};
+    socklen_t addrlen = sizeof remote;
+    //log_(LogLevel::INFO) << "::accept(sfd=" << sfd << ", ...)\n";
+    int newsfd = ::accept(sfd, (struct sockaddr*)&remote, &addrlen);
+    if (newsfd < 0) {
+      int err = errno;
+      std::ostringstream oss;
+      oss << callee.str() << " ::accept(sfd=" << sfd << ", ...)";
+      throw SystemErrorException(Error(err, __LINE__, oss.str()));
+    }
+    WebSocket ws(Mode::SERVER);
+    ws.sfd_ = newsfd;
+    ws.host_ = host_;
+    ws.port_ = port_;
+    ws.path_ = path_;
+    ws.query_ = query_;
+    remote_ = Sockaddr(remote);
+
+    log_(LogLevel::INFO) << "::accept(sfd=" << sfd << ", ...) newsfd=" << newsfd << ", remote=" << remote_.ip() << ", port=" << remote_.port() << std::endl;
+    return ws;
+  }
+
+  /// @brief accept socket
+  ///
+  /// @param [out] remote: stored remote Sockaddr
+  /// @retval new WebSocket instance
+  /// @exception LwsockException, SystemErrorException
+  WebSocket accept(Sockaddr& remote)
+  {
+    WebSocket nws = accept(); // newer Websocket instance
+    remote = nws.remote_;
+    return nws;
+  }
+
+  /// @brief receive opening handshake request
+  ///
+  /// @retval received handshake request data
+  /// @exception CRegexException, LwsockExrepss, SystemErrorException
+  handshake_t recv_req()
+  {
+    return recv_req(Timespec());
+  }
+
+  /// @brief receive opening handshake request with timeout
+  ///
+  /// @param [in] timeout: Timespec instance
+  /// @retval received handshake request data
+  /// @exception CRegexException, LwsockExrepss, SystemErrorException
+  handshake_t recv_req(const Timespec& timeout)
+  {
+    assert(sfd_ != -1);
+    assert(mode_ == Mode::SERVER);
+
+    callee(WSMETHOD, "(timeout=" << timeout.to_string() << ")");
+    ScopedLog slog(callee.str());
+
+    std::string recved_response = recv_until_eoh(sfd_, timeout);
+    log_(LogLevel::DEBUG) << '\"' << recved_response << '\"'<< std::endl;
+
+    handshake_t handshake_data;
+    try {
+      handshake_data = parse_handshake_msg(recved_response);
+    }
+    catch (LwsockException& e) {
+      int err = as_int(LwsockErrc::INVALID_HANDSHAKE);
+      std::ostringstream oss;
+      oss << callee.str() << " INVALID_HANDSHAKE. send 404 and close socket=" << sfd_;
+      handshake_t handshake;
+      handshake.first = "HTTP/1.1 400 Bad Request";
+      send_res_manually(handshake);
+      close_socket(sfd_); // 10.7 when the endpoint sees an opening handshake that does not correspond to the values it is expecting, the endpoint MAY drop the TCP connection.
+      throw LwsockException(Error(err, __LINE__, oss.str()));
+    }
+
+    CRegex regex(R"(^GET +((/[^? ]*)(\?[^ ]*)?)? *HTTP/1\.1)", 20);
+    auto tmp = regex.exec(handshake_data.first);
+    if (tmp.size() < 1) {
+      int err = as_int(LwsockErrc::INVALID_HANDSHAKE);
+      std::ostringstream oss;
+      oss << callee.str() << " INVALID_HANDSHAKE first_line=\"" << handshake_data.first << "\". send 404 and close socket=" << sfd_;
+      handshake_t handshake;
+      handshake.first = "HTTP/1.1 400 Bad Request";
+      send_res_manually(handshake);
+      close_socket(sfd_); // 10.7 when the endpoint sees an opening handshake that does not correspond to the values it is expecting, the endpoint MAY drop the TCP connection.
+      throw LwsockException(Error(err, __LINE__, oss.str()));
+    }
+
+    // if the request path differ expecting path, then respond 404.
+    std::pair<std::string, std::string> path_query = split_path_query(tmp[1]);
+    if (path_query.first != path_) {
+      int err = as_int(LwsockErrc::INVALID_HANDSHAKE);
+      std::ostringstream oss;
+      oss << callee.str() << " INVALID_HANDSHAKE path=\"" << path_query.first << "\". require path=" << path_ << ". send 404 and close socket=" << sfd_;
+      handshake_t handshake;
+      handshake.first = "HTTP/1.1 400 Bad Request";
+      send_res_manually(handshake);
+      close_socket(sfd_); // 10.7 when the endpoint sees an opening handshake that does not correspond to the values it is expecting, the endpoint MAY drop the TCP connection.
+      throw LwsockException(Error(err, __LINE__, oss.str()));
+    }
+
+    auto ite4origin = std::find_if(std::begin(handshake_data.second), std::end(handshake_data.second), [](std::pair<std::string, std::string>& headervalue){
+      if (str2lower(headervalue.first) == str2lower("Origin")) {
+        return true;
+      }
+      else {
+        return false;
+      }
+    });
+    if (ite4origin != std::end(handshake_data.second)) {
+      origin_ = ite4origin->second;
+    }
+
+    try {
+      check_request_headers(handshake_data.second);
+    }
+    catch (LwsockException& e) {
+      std::ostringstream oss;
+      oss << callee.str() << e.what() << " received a bad request from the client, then send 400 response and close socekt=" << sfd_;
+      handshake_t handshake;
+      handshake.first = "HTTP/1.1 400 Bad Request";
+      send_res_manually(handshake);
+      close_socket(sfd_); // 10.7 when the endpoint sees an opening handshake that does not correspond to the values it is expecting, the endpoint MAY drop the TCP connection.
+      throw LwsockException(Error(e.code(), oss.str()));
+    }
+
+    return handshake_data;
+  }
+
+  /// @brief send opening handshake response. <br>
+  ///   send default heades are Host, Upgrade, Connection, Sec-WebSocket-Key and Sec-WebSocket-Accept
+  ///
+  /// @retval sent a opening handshake response message 
+  /// @exception SystemErrorException
+  std::string send_res()
+  {
+    return send_res(headers_t{});
+  }
+
+  /// @brief send opening handshake response with other headers. <br>
+  ///   if you want to send that add other headers to default headers, then use this api.
+  ///
+  /// @param [in] otherheaders: other headers. <br>
+  /// @retval sent a opening handshake response message
+  /// @exception SystemErrorException
+  std::string send_res(const headers_t& otherheaders)
+  {
+    assert(sfd_ != -1);
+    assert(mode_ == Mode::SERVER);
+
+    callee(WSMETHOD, "() otherheaders cnt=" << otherheaders.size());
+    ScopedLog slog(callee.str());
+
+    handshake_t handshake;
+    handshake.first = "HTTP/1.1 101 Switching Protocols\r\n";
+
+    headers_t headers;
+    headers.push_back({"Upgrade", "websocket"});
+    headers.push_back({"Connection", "Upgrade"});
+
+    std::string key = make_key(nonce_, GUID);
+    headers.push_back({"Sec-WebSocket-Accept", key});
+    if (!otherheaders.empty()) {
+      std::copy(std::begin(otherheaders), std::end(otherheaders), std::back_inserter(headers));
+    }
+
+    handshake.second = headers;
+
+    return send_ohandshake(handshake);
+  }
+
+  /// @brief send the opening handshake message that is set completely manual.
+  ///
+  /// @param [in] handshake: handshake message.
+  /// @retval sent a opening handshake response message.
+  /// @exception SystemErrorException
+  std::string send_res_manually(const handshake_t& handshake)
+  {
+    return send_ohandshake(handshake);
+  }
+
+  /// @brief connect to the server
+  ///
+  /// @param [in] uri: connect to uri. <br>
+  ///     uri ::= "ws://" host (":" port)? path ("?" query)? <br>
+  ///     host ::= hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
+  ///     IPv6_colon_hex must be enclosed '[' and ']'.
+  /// @retval reference of *this
+  /// @exception CRegexException, GetaddrinfoException, LwsockExrepss, SystemErrorException
+  WebSocket& connect(const std::string& uri)
+  {
+    return connect(uri, Timespec());
+  }
+
+  /// @brief connect to the server with timeout
+  ///
+  /// @param [in] uri: connect to uri. <br>
+  ///     uri ::= "ws://" host (":" port)? path ("?" query)? <br>
+  ///     host ::= hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
+  ///     IPv6_colon_hex must be enclosed '[' and ']'.
+  /// @param [in] timeout: Timespec instance
+  /// @retval reference of *this
+  /// @exception CRegexException, GetaddrinfoException, LwsockExrepss, SystemErrorException
+  WebSocket& connect(const std::string& uri, const Timespec& timeout)
+  {
+    return connect(uri, AF_UNSPEC, timeout);
   }
 
   /// @brief connect to the server with timeout
@@ -1864,36 +2308,17 @@ public:
     }
 
     sfd_ = available_sfd;
-    log_(LogLevel::INFO) << METHOD("(sfd=" << sfd_ << ") connect success.") << std::endl;
+    log_(LogLevel::INFO) << WSMETHOD << "(sfd=" << sfd_ << ") connect success." << std::endl;
 
     return *this;
   }
 
-  /// @brief connect to the server with timeout
+  /// @brief send a opening handshake request.
   ///
-  /// @param [in] uri: connect to uri. <br>
-  ///     uri ::= "ws://" host (":" port)? path ("?" query)? <br>
-  ///     host ::= hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
-  ///     IPv6_colon_hex must be enclosed '[' and ']'.
-  /// @param [in] timeout: Timespec instance
-  /// @retval reference of *this
-  /// @exception CRegexException, GetaddrinfoException, LwsockExrepss, SystemErrorException
-  WebSocket& connect(const std::string& uri, const Timespec& timeout)
+  /// @retval sent string transformed handshake data
+  std::string send_req()
   {
-    return connect(uri, AF_UNSPEC, timeout);
-  }
-
-  /// @brief connect to the server
-  ///
-  /// @param [in] uri: connect to uri. <br>
-  ///     uri ::= "ws://" host (":" port)? path ("?" query)? <br>
-  ///     host ::= hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
-  ///     IPv6_colon_hex must be enclosed '[' and ']'.
-  /// @retval reference of *this
-  /// @exception CRegexException, GetaddrinfoException, LwsockExrepss, SystemErrorException
-  WebSocket& connect(const std::string& uri)
-  {
-    return connect(uri, Timespec());
+    return send_req(headers_t{});
   }
 
   /// @brief send opening handshake request with other headers
@@ -1931,14 +2356,6 @@ public:
     return send_ohandshake(handshake);
   }
 
-  /// @brief send opening handshake request
-  ///
-  /// @retval sent string transformed handshake data
-  std::string send_req()
-  {
-    return send_req(headers_t{});
-  }
-
   /// @brief send all the parameters set manually request
   ///
   /// @param [in] handshake: full manually handshake data
@@ -1947,6 +2364,16 @@ public:
   std::string send_req_manually(const handshake_t& handshake)
   {
     return send_ohandshake(handshake);
+  }
+
+  /// @brief receive opening handshake response
+  ///
+  /// @retval pair::first: received handshake data <br>
+  ///         pair::second: status code <br>
+  /// @exception CRegexException, LwsockExrepss, SystemErrorException
+  std::pair<handshake_t, int32_t> recv_res()
+  {
+    return recv_res(Timespec());
   }
 
   /// @brief receive opening handshake Response with timeout
@@ -2001,16 +2428,6 @@ public:
     return std::pair<handshake_t, int32_t>(handshake_data, status_code);
   }
 
-  /// @brief receive opening handshake response
-  ///
-  /// @retval pair::first: received handshake data <br>
-  ///         pair::second: status code <br>
-  /// @exception CRegexException, LwsockExrepss, SystemErrorException
-  std::pair<handshake_t, int32_t> recv_res()
-  {
-    return recv_res(Timespec());
-  }
-
   /// @brief send a websocket text message to the remote
   ///
   /// @param [in] payload_data: WebSocket payload data
@@ -2043,6 +2460,16 @@ public:
 
   /// @brief receive a websocket text message from the remote with timeout
   ///
+  /// @retval pair::first: a received string message
+  ///         pair::second: status code when recieved a CLOSE
+  /// @exception CRegexException, LwsockExrepss, SystemErrorException
+  std::pair<std::string, int32_t> recv_msg_txt()
+  {
+    return recv_msg_txt(Timespec());
+  }
+
+  /// @brief receive a websocket text message from the remote with timeout
+  ///
   /// @param [in] timeout: Timespec instance
   /// @retval pair::first: a received string message
   ///         pair::second: status code when recieved a CLOSE
@@ -2059,14 +2486,10 @@ public:
     return result;
   }
 
-  /// @brief receive a websocket text message from the remote with timeout
-  ///
-  /// @retval pair::first: a received string message
-  ///         pair::second: status code when recieved a CLOSE
-  /// @exception CRegexException, LwsockExrepss, SystemErrorException
-  std::pair<std::string, int32_t> recv_msg_txt()
+  /// @exception LwsockException, SystemErrorException
+  std::pair<std::vector<uint8_t>, int32_t> recv_msg_bin()
   {
-    return recv_msg_txt(Timespec());
+    return recv_msg_bin(Timespec());
   }
 
   /// @brief receive a websocket binary message from the remote with timeout
@@ -2085,424 +2508,14 @@ public:
     std::pair<std::vector<uint8_t>, int32_t> result = recv_msg<std::vector<uint8_t>>(timeout);
     return result;
   }
-  /// @exception LwsockException, SystemErrorException
-  std::pair<std::vector<uint8_t>, int32_t> recv_msg_bin()
-  {
-    return recv_msg_bin(Timespec());
-  }
 
-  /// @brief bind the ip address and port
+  /// @brief send ping
   ///
-  /// @param [in] uri: bind uri. <br>
-  ///     uri ::= "ws://" host (":" port)? path ("?" query)? <br>
-  ///     host ::= hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
-  ///     IPv6_colon_hex must be enclosed '[' and ']'.
-  /// @pram [in] af: AF_INET, AF_INET6, AF_UNSPEC <br>
-  ///     if you use hostname and want to specify IPv6 (or IPv4) only, then you should set AF_INET6 (or AF_INET) to af argument
-  /// @retval reference of *this
-  /// @exception CRegexException, GetaddrinfoException, LwsockExrepss
-  WebSocket& bind(const std::string& uri, int af)
-  {
-    assert(!uri.empty());
-    assert(sfd_ == -1);
-
-    callee(WSMETHOD, "(uri=\"" << uri << "\", af=" << af2str(af) << ")");
-    ScopedLog slog(callee.str());
-
-    if (mode_ != Mode::SERVER) {
-      int err = as_int(LwsockErrc::INVALID_MODE);
-      std::ostringstream oss;
-      oss << callee.str() << " invalid mode. expect Mode::SERVER, actual Mode::CLIENT.";
-      throw LwsockException(Error(err, __LINE__, oss.str()));
-    }
-
-    if (uri.empty()) {
-      int err = as_int(LwsockErrc::INVALID_PARAM);
-      std::ostringstream oss;
-      oss << callee.str() << " invalid uri.";
-      throw LwsockException(Error(err, __LINE__, oss.str()));
-    }
-
-    if (af != AF_UNSPEC && af != AF_INET && af != AF_INET6) {
-      int err = as_int(LwsockErrc::INVALID_PARAM);
-      std::ostringstream oss;
-      oss << callee.str() << " invalid af=" << af2str(af);
-      throw LwsockException(Error(err, __LINE__, oss.str()));
-    }
-
-    std::pair<std::string, std::string> host_port;
-    std::pair<std::string, std::string> hostport_pathquery;
-    try {
-      // split into host_port part and path_query part.
-      hostport_pathquery = split_hostport_pathquery(uri);
-
-      // split into host part and port number part.
-      host_port = split_host_port(hostport_pathquery.first);
-    }
-    catch (LwsockException& e) {
-      int err = as_int(LwsockErrc::INVALID_PARAM);
-      std::ostringstream oss;
-      oss << callee.str() << " invalid uri.";
-      throw LwsockException(Error(err, __LINE__, oss.str()));
-    }
-
-    // split into path part and query part.
-    std::pair<std::string, std::string> path_query = split_path_query(hostport_pathquery.second);
-    path_ = std::move(path_query.first);
-    query_ = std::move(path_query.second);
-
-    host_ = host_port.first;
-    try {
-      port_ = host_port.second.empty() ? 80 : std::stoi(host_port.second);
-    }
-    catch (std::invalid_argument& e) {
-      int err = as_int(LwsockErrc::INVALID_PARAM);
-      std::ostringstream oss;
-      oss << callee.str() << " invalid port number=" << host_port.second;
-      throw LwsockException(Error(err, __LINE__, oss.str()));
-    }
-    if (port_ > 65535) {
-      int err = as_int(LwsockErrc::INVALID_PARAM);
-      std::ostringstream oss;
-      oss << callee.str() << " invalid port number=" << host_port.second;
-      throw LwsockException(Error(err, __LINE__, oss.str()));
-    }
-
-    log_(LogLevel::INFO)
-        << "host_=\"" << host_ << '\"' << ", port=" << port_ << ", path_=\"" << path_ << '\"' << ", query=\"" << query_ << '\"'
-        << std::endl
-        ;
-
-    struct addrinfo hints = {0};
-    struct addrinfo* res0 = nullptr;
-    struct addrinfo* res = nullptr;
-    hints.ai_flags += is_numerichost(host_) ? AI_NUMERICHOST : hints.ai_flags;
-    hints.ai_family
-      = af == AF_INET ? AF_INET
-      : af == AF_INET6 ? AF_INET6
-      : AF_UNSPEC
-      ;
-    hints.ai_socktype = SOCK_STREAM;
-
-    int ret = ::getaddrinfo(host_.c_str(), std::to_string(port_).c_str(), &hints, &res0);
-    if (ret != 0) {
-      int err = ret;
-      std::ostringstream oss;
-      oss << callee.str() << " getaddrinfo(node=\"" << host_ << "\", port=" << port_ << ")";
-      throw GetaddrinfoException(Error(err, __LINE__, oss.str()));
-    }
-
-    for (res = res0; res != nullptr; res = res->ai_next) {
-      int sfd = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-      if (sfd < 0) {
-        int err = errno;
-        log_(LogLevel::WARNING) << "::socket(" << res->ai_family << ", " << res->ai_socktype << ", " << res->ai_protocol << ") error=" << err << ". " << strerror(err) << ". Try next." << std::endl;
-        continue;
-      }
-      log_(LogLevel::TRACE) << "::socket() sfd=" << sfd << std::endl;
-
-      int on = 1;
-      if (res->ai_family == AF_INET6) {
-        setsockopt(sfd, IPPROTO_IPV6, IPV6_V6ONLY, &on, sizeof on);
-      }
-      setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof on);
-      setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof on);
-#if defined(SO_REUSEPORT)
-      setsockopt(sfd, SOL_SOCKET, SO_REUSEPORT, &on, sizeof on);
-#endif
-
-      Sockaddr saddr(res->ai_addr, res->ai_addrlen);
-      ret = ::bind(sfd, res->ai_addr, res->ai_addrlen);
-      if (ret < 0) {
-        int err = errno;
-        log_(LogLevel::WARNING) << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". closed socket. Try next." << std::endl;
-        close_socket(sfd);
-        continue;
-      }
-      log_(LogLevel::INFO) << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ")" << std::endl;
-
-      bind_sfds_.push_back(sfd);
-    }
-    freeaddrinfo(res);
-
-    if (bind_sfds_.empty()) {
-      int err = as_int(LwsockErrc::COULD_NOT_OPEN_AVAILABLE_SOCKET);
-      std::ostringstream oss;
-      oss << callee.str() << " could not bind(2) any sockets.";
-      throw LwsockException(Error(err, __LINE__, oss.str()));
-    }
-
-    return *this;
-  }
-
-  /// @brief bind the ip address and port
-  ///
-  /// @param [in] uri: bind uri. <br>
-  ///     uri ::= "ws://" host (":" port)? path ("?" query)? <br>
-  ///     host ::= hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
-  ///     IPv6_colon_hex must be enclosed '[' and ']'.
-  /// @retval reference of *this
-  /// @exception CRegexException, GetaddrinfoException, LwsockExrepss
-  WebSocket& bind(const std::string& uri)
-  {
-    return bind(uri, AF_UNSPEC);
-  }
-
-  /// @brief listen socket
-  ///
-  /// @param [in] backlog: listen(2)'s backlog
-  /// @retval reference of *this
+  /// @retval sent size. bytes
   /// @exception SystemErrorException
-  WebSocket& listen(int backlog)
+  ssize_t send_ping()
   {
-    assert(mode_ == Mode::SERVER);
-    assert(!bind_sfds_.empty());
-
-    callee(WSMETHOD, "(backlog=" << backlog << ")");
-    ScopedLog slog(callee.str());
-
-    std::for_each(std::begin(bind_sfds_), std::end(bind_sfds_), [&](int sfd){
-      int ret = ::listen(sfd, backlog);
-      if (ret != 0) {
-        int err = errno;
-        std::ostringstream oss;
-        oss << callee.str() << "::listen(sfd=" << sfd << ", backlog=" << backlog << ")";
-        throw SystemErrorException(Error(err, __LINE__, oss.str()));
-      }
-      log_(LogLevel::INFO) << "::listen(sfd=" << sfd << ", backlog=" << backlog << ")" << std::endl;
-    });
-
-    return *this;
-  }
-
-  /// @brief accept socket
-  ///
-  /// @retval new WebSocket instance
-  /// @exception LwsockException, SystemErrorException
-  WebSocket accept()
-  {
-    assert(mode_ == Mode::SERVER);
-    assert(!bind_sfds_.empty());
-
-    callee(WSMETHOD, "()");
-    ScopedLog slog(callee.str());
-
-    fd_set rfds;
-    FD_ZERO(&rfds);
-    int maxsfd = -1;
-
-    log_(LogLevel::INFO) << "::pselect() wait sfds=";
-    for (size_t i = 0; i < bind_sfds_.size(); ++i) {
-      int sfd = bind_sfds_[i];
-      FD_SET(sfd, &rfds);
-      maxsfd = std::max(maxsfd, sfd);
-      log_ << sfd << (i != bind_sfds_.size()-1 ? "," : "");
-    }
-    log_ << '\n' << std::flush;
-
-    int nfds = maxsfd + 1;
-    int ret = pselect(nfds, &rfds, nullptr, nullptr, nullptr, nullptr);
-    if (ret == -1) {
-      int err = errno;
-      std::ostringstream oss;
-      oss << callee.str() << " ::pselect(nfds=" << nfds << ", ...)";
-      throw SystemErrorException(Error(err, __LINE__, oss.str()));
-    }
-
-    auto ite = std::find_if(std::begin(bind_sfds_), std::end(bind_sfds_), [&rfds](int sfd){
-        if (FD_ISSET(sfd, &rfds)) {
-          return true;
-        }
-        else {
-          return false;
-        }
-    });
-    int sfd = *ite;
-
-    struct sockaddr_storage remote = {0};
-    socklen_t addrlen = sizeof remote;
-    //log_(LogLevel::INFO) << "::accept(sfd=" << sfd << ", ...)\n";
-    int newsfd = ::accept(sfd, (struct sockaddr*)&remote, &addrlen);
-    if (newsfd < 0) {
-      int err = errno;
-      std::ostringstream oss;
-      oss << callee.str() << " ::accept(sfd=" << sfd << ", ...)";
-      throw SystemErrorException(Error(err, __LINE__, oss.str()));
-    }
-    WebSocket ws(Mode::SERVER);
-    ws.sfd_ = newsfd;
-    ws.host_ = host_;
-    ws.port_ = port_;
-    ws.path_ = path_;
-    ws.query_ = query_;
-    remote_ = Sockaddr(remote);
-
-    log_(LogLevel::INFO) << "::accept(sfd=" << sfd << ", ...) newsfd=" << newsfd << ", remote=" << remote_.ip() << ", port=" << remote_.port() << std::endl;
-    return ws;
-  }
-
-  /// @brief accept socket
-  ///
-  /// @param [out] remote: stored remote Sockaddr
-  /// @retval new WebSocket instance
-  /// @exception LwsockException, SystemErrorException
-  WebSocket accept(Sockaddr& remote)
-  {
-    WebSocket nws = accept(); // newer Websocket instance
-    remote = nws.remote_;
-    return nws;
-  }
-
-  /// @brief get remote Sockaddr
-  ///
-  /// @retval remote Sockaddr
-  Sockaddr remote()
-  {
-    return remote_;
-  }
-
-  /// @brief receive opening handshake request with timeout
-  ///
-  /// @param [in] timeout: Timespec instance
-  /// @retval received handshake request data
-  /// @exception CRegexException, LwsockExrepss, SystemErrorException
-  handshake_t recv_req(const Timespec& timeout)
-  {
-    assert(sfd_ != -1);
-    assert(mode_ == Mode::SERVER);
-
-    callee(WSMETHOD, "(timeout=" << timeout.to_string() << ")");
-    ScopedLog slog(callee.str());
-
-    std::string recved_response = recv_until_eoh(sfd_, timeout);
-    log_(LogLevel::DEBUG) << '\"' << recved_response << '\"'<< std::endl;
-
-    handshake_t handshake_data;
-    try {
-      handshake_data = parse_handshake_msg(recved_response);
-    }
-    catch (LwsockException& e) {
-      int err = as_int(LwsockErrc::INVALID_HANDSHAKE);
-      std::ostringstream oss;
-      oss << callee.str() << " INVALID_HANDSHAKE. send 404 and close socket=" << sfd_;
-      handshake_t handshake;
-      handshake.first = "HTTP/1.1 400 Bad Request";
-      send_res_manually(handshake);
-      close_socket(sfd_); // 10.7 when the endpoint sees an opening handshake that does not correspond to the values it is expecting, the endpoint MAY drop the TCP connection.
-      throw LwsockException(Error(err, __LINE__, oss.str()));
-    }
-
-    CRegex regex(R"(^GET +((/[^? ]*)(\?[^ ]*)?)? *HTTP/1\.1)", 20);
-    auto tmp = regex.exec(handshake_data.first);
-    if (tmp.size() < 1) {
-      int err = as_int(LwsockErrc::INVALID_HANDSHAKE);
-      std::ostringstream oss;
-      oss << callee.str() << " INVALID_HANDSHAKE first_line=\"" << handshake_data.first << "\". send 404 and close socket=" << sfd_;
-      handshake_t handshake;
-      handshake.first = "HTTP/1.1 400 Bad Request";
-      send_res_manually(handshake);
-      close_socket(sfd_); // 10.7 when the endpoint sees an opening handshake that does not correspond to the values it is expecting, the endpoint MAY drop the TCP connection.
-      throw LwsockException(Error(err, __LINE__, oss.str()));
-    }
-
-    // if the request path differ expecting path, then respond 404.
-    std::pair<std::string, std::string> path_query = split_path_query(tmp[1]);
-    if (path_query.first != path_) {
-      int err = as_int(LwsockErrc::INVALID_HANDSHAKE);
-      std::ostringstream oss;
-      oss << callee.str() << " INVALID_HANDSHAKE path=\"" << path_query.first << "\". require path=" << path_ << ". send 404 and close socket=" << sfd_;
-      handshake_t handshake;
-      handshake.first = "HTTP/1.1 400 Bad Request";
-      send_res_manually(handshake);
-      close_socket(sfd_); // 10.7 when the endpoint sees an opening handshake that does not correspond to the values it is expecting, the endpoint MAY drop the TCP connection.
-      throw LwsockException(Error(err, __LINE__, oss.str()));
-    }
-
-    auto ite4origin = std::find_if(std::begin(handshake_data.second), std::end(handshake_data.second), [](std::pair<std::string, std::string>& headervalue){
-      if (str2lower(headervalue.first) == str2lower("Origin")) {
-        return true;
-      }
-      else {
-        return false;
-      }
-    });
-    if (ite4origin != std::end(handshake_data.second)) {
-      origin_ = ite4origin->second;
-    }
-
-    try {
-      check_request_headers(handshake_data.second);
-    }
-    catch (LwsockException& e) {
-      std::ostringstream oss;
-      oss << callee.str() << e.what() << " received a bad request from the client, then send 400 response and close socekt=" << sfd_;
-      handshake_t handshake;
-      handshake.first = "HTTP/1.1 400 Bad Request";
-      send_res_manually(handshake);
-      close_socket(sfd_); // 10.7 when the endpoint sees an opening handshake that does not correspond to the values it is expecting, the endpoint MAY drop the TCP connection.
-      throw LwsockException(Error(e.code(), oss.str()));
-    }
-
-    return handshake_data;
-  }
-
-  /// @brief receive opening handshake request
-  ///
-  /// @retval received handshake request data
-  /// @exception CRegexException, LwsockExrepss, SystemErrorException
-  handshake_t recv_req()
-  {
-    return recv_req(Timespec());
-  }
-
-  /// @brief send opening handshake response with other headers
-  ///
-  /// @param [in] otherheaders: other headers. <br>
-  ///     default heades are Host, Upgrade, Connection, Sec-WebSocket-Key and Sec-WebSocket-Accept
-  /// @retval string transformed handshake data 
-  /// @exception SystemErrorException
-  std::string send_res(const headers_t& otherheaders)
-  {
-    assert(sfd_ != -1);
-    assert(mode_ == Mode::SERVER);
-
-    callee(WSMETHOD, "() otherheaders cnt=" << otherheaders.size());
-    ScopedLog slog(callee.str());
-
-    handshake_t handshake;
-    handshake.first = "HTTP/1.1 101 Switching Protocols\r\n";
-
-    headers_t headers;
-    headers.push_back({"Upgrade", "websocket"});
-    headers.push_back({"Connection", "Upgrade"});
-
-    std::string key = make_key(nonce_, GUID);
-    headers.push_back({"Sec-WebSocket-Accept", key});
-    if (!otherheaders.empty()) {
-      std::copy(std::begin(otherheaders), std::end(otherheaders), std::back_inserter(headers));
-    }
-
-    handshake.second = headers;
-
-    return send_ohandshake(handshake);
-  }
-
-  /// @brief send opening handshake response
-  ///
-  /// @retval string transformed handshake data 
-  std::string send_res()
-  {
-    return send_res(headers_t{});
-  }
-
-  /// @brief send all the parameters set manually response
-  ///
-  /// @param [in] handshake: full manually handshake data
-  /// @retval string transformed handshake data 
-  /// @exception SystemErrorException
-  std::string send_res_manually(const handshake_t& handshake)
-  {
-    return send_ohandshake(handshake);
+    return send_msg(Opcode::PING, "", 0);
   }
 
   /// @brief send ping with a text app data
@@ -2535,13 +2548,13 @@ public:
     return send_msg(Opcode::PING, app_data.data(), app_data.size());
   }
 
-  /// @brief send ping
+  /// @brief send pong
   ///
   /// @retval sent size. bytes
   /// @exception SystemErrorException
-  ssize_t send_ping()
+  ssize_t send_pong()
   {
-    return send_msg(Opcode::PING, "", 0);
+    return send_msg(Opcode::PONG, nullptr, 0);
   }
 
   /// @brief send pong with a text app data
@@ -2583,13 +2596,23 @@ public:
     return send_msg(Opcode::PONG, app_data.data(), app_data.size());
   }
 
-  /// @brief send pong
+  /// @brief send CLOSE frame
   ///
-  /// @retval sent size. bytes
-  /// @exception SystemErrorException
-  ssize_t send_pong()
+  /// @param [in] status_code: status code
+  /// @exception LwsockException, SystemErrorException
+  void send_close(const uint16_t status_code)
   {
-    return send_msg(Opcode::PONG, nullptr, 0);
+    send_close(status_code, "", Timespec());
+  }
+
+  /// @brief send CLOSE frame
+  ///
+  /// @param [in] status_code: status code
+  /// @param [in] reason: reason
+  /// @exception LwsockException, SystemErrorException
+  void send_close(const uint16_t status_code, const std::string& reason)
+  {
+    send_close(status_code, reason, Timespec());
   }
 
   /// @brief send CLOSE frame with timeout. send CLOSE frame, then wait a response (maybe CLOSE frame) or wait closing socket from the remote
@@ -2625,23 +2648,12 @@ public:
     close_websocket(sfd_, timeout);
   }
 
-  /// @brief send CLOSE frame
+  /// @brief get remote Sockaddr
   ///
-  /// @param [in] status_code: status code
-  /// @param [in] reason: reason
-  /// @exception LwsockException, SystemErrorException
-  void send_close(const uint16_t status_code, const std::string& reason)
+  /// @retval remote Sockaddr
+  Sockaddr remote()
   {
-    send_close(status_code, reason, Timespec());
-  }
-
-  /// @brief send CLOSE frame
-  ///
-  /// @param [in] status_code: status code
-  /// @exception LwsockException, SystemErrorException
-  void send_close(const uint16_t status_code)
-  {
-    send_close(status_code, "", Timespec());
+    return remote_;
   }
 
   /// @brief get path of the received opening handshake request
@@ -2662,7 +2674,7 @@ public:
 
   /// @brief get Origin header's value. not supported yet
   ///
-  /// @retval query
+  /// @retval origin
   std::string origin()
   {
     return origin_;
@@ -3108,7 +3120,7 @@ private:
       nanosleep(&ts, nullptr);
     }
 
-    slog.clear() << METHOD("(sfd=" << sfd << ", ...) result=" << sent_sz);
+    slog.clear() << WSMETHOD << "(sfd=" << sfd << ", ...) result=" << sent_sz;
     return sent_sz;
   }
 
@@ -3152,7 +3164,7 @@ private:
       throw SystemErrorException(Error(err, __LINE__, oss.str()));
     }
 
-    slog.clear() << METHOD("(sfd=" << sfd << ", ...) result=" << result);
+    slog.clear() << WSMETHOD << "(sfd=" << sfd << ", ...) result=" << result;
     return result;
   }
 
@@ -3389,7 +3401,7 @@ private:
     }
     callee << ")";
     ScopedLog slog(LogLevel::TRACE, callee.str());
-    slog.clear() << METHOD("(...)");
+    slog.clear() << WSMETHOD << "(...)";
 
     // check "Host" header existing
     { auto ite = std::find_if(std::begin(hv_lines), std::end(hv_lines), [](auto& hv){
