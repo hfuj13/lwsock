@@ -248,18 +248,6 @@ public:
     }
   }
 
-  ///// @param [in] lvl: output level
-  ///// @param [in] line: the line number in source code
-  //std::ostream& operator()(Level lvl, uint32_t line)
-  //{
-  //  if (lvl >= level_)
-  //  { return (*this) << now_timestamp() << " line:" << line << ' '; }
-  //  else {
-  //    static std::ostream ost(nullptr);
-  //    return ost;
-  //  }
-  //}
-
   /// @brief set ost and get Log instance
   ///
   /// @param [in] ost: ostream for log output. output the log to the ostream
@@ -337,11 +325,13 @@ template<typename T> std::ostream& operator<<(Log& log, const T& rhs)
 class ScopedLog final {
 public:
   ScopedLog() = delete;
+  ScopedLog(const ScopedLog&) = default;
+  ScopedLog(ScopedLog&&) = default;
 
   /// @brief constructer
   ///
   /// @param [in] str: log string
-  explicit ScopedLog(const std::string& str)
+  ScopedLog(const std::string& str)
   : ScopedLog(LogLevel::DEBUG, str)
   { }
   ScopedLog(LogLevel loglevel, const std::string& str)
@@ -349,10 +339,12 @@ public:
   {
     log_(loglevel_) << "[[[[ " << oss_.str() << std::endl;
   }
+
   ~ScopedLog()
   {
     log_(loglevel_) << "]]]] " << oss_.str() << std::endl;
   }
+
   std::string str()
   {
     return oss_.str();
@@ -410,6 +402,7 @@ public:
   explicit Error(int errcode)
   : Error(errcode, 0, "")
   { }
+
   ~Error() = default;
 
   /// @brief get error code
@@ -443,9 +436,10 @@ public:
   CRegexException() = delete;
   CRegexException(const CRegexException&) = default;
   CRegexException(CRegexException&&) = default;
-  CRegexException(const Error& error)
+  explicit CRegexException(const Error& error)
   : error_(error)
   { }
+
   ~CRegexException() = default;
 
   const char* what() const noexcept override
@@ -470,9 +464,10 @@ public:
   GetaddrinfoException() = delete;
   GetaddrinfoException(const GetaddrinfoException&) = default;
   GetaddrinfoException(GetaddrinfoException&&) = default;
-  GetaddrinfoException(const Error& error)
+  explicit GetaddrinfoException(const Error& error)
   : error_(error)
   { }
+
   ~GetaddrinfoException() = default;
 
   const char* what() const noexcept override
@@ -498,9 +493,10 @@ public:
   LwsockException() = delete;
   LwsockException(const LwsockException&) = default;
   LwsockException(LwsockException&&) = default;
-  LwsockException(const Error& error)
+  explicit LwsockException(const Error& error)
   : error_(error)
   { }
+
   ~LwsockException() = default;
 
   const char* what() const noexcept override
@@ -527,9 +523,10 @@ public:
   SystemErrorException() = delete;
   SystemErrorException(const SystemErrorException&) = default;
   SystemErrorException(SystemErrorException&&) = default;
-  SystemErrorException(const Error& error)
+  explicit SystemErrorException(const Error& error)
   : error_(error)
   { }
+
   ~SystemErrorException() = default;
 
   const char* what() const noexcept override
@@ -1251,10 +1248,10 @@ func_end:
 class AHead final {
 public:
   AHead() = default;
-  explicit AHead(uint16_t data) // data is network byte order
-  : data_(data) { }
   AHead(const AHead&) = default;
   AHead(AHead&&) = default;
+  explicit AHead(uint16_t data) // data is network byte order
+  : data_(data) { }
 
   ~AHead() = default;
 
@@ -1434,7 +1431,7 @@ public:
   Sockaddr() = default;
   Sockaddr(const Sockaddr&) = default;
   Sockaddr(Sockaddr&&) = default;
-  Sockaddr(const struct sockaddr_storage& addr)
+  explicit Sockaddr(const struct sockaddr_storage& addr)
   {
     uaddr_.storage = addr;
   }
@@ -1535,7 +1532,7 @@ public:
 
   Timespec() = default;
 
-  /// @brief constructer
+  /// @brief constructer that the milliseconds specify
   ///
   /// @param [in] msec: millisecond or TIMEOUT_NOSPEC
   /// @exception LwsockException
@@ -1553,6 +1550,8 @@ public:
       throw LwsockException(Error(as_int(LwsockErrc::INVALID_PARAM), __LINE__));
     }
   }
+  ~Timespec() = default;
+
   bool operator==(int32_t msec) const
   {
     return msec_ == msec;
@@ -1578,9 +1577,9 @@ public:
     return msec_ <= msec;
   }
 
-  /// @brief get a pointer for struct timespec instance
+  /// @brief get a pointer of struct timespec instance
   ///
-  /// @retval a pointer for struct timespec instance
+  /// @retval a pointer of struct timespec instance
   const struct timespec* ptr() const
   {
     return tm_.get();
@@ -1588,7 +1587,7 @@ public:
 
   /// @brief transform to string
   ///
-  /// @retval transformed string. (e.g. {10, 123} or NOSPEC etc.)
+  /// @retval "struct timespec" string representation. (e.g. {10, 123} or NOSPEC etc.)
   std::string to_string() const
   {
     if (msec_ == TIMEOUT_NOSPEC) {
@@ -1603,7 +1602,6 @@ private:
   std::unique_ptr<struct timespec> tm_ = nullptr;
 };
 
-//#define METHOD(arg) "WebSocket::" << __func__ << arg
 #define WSMETHOD "WebSocket::" << __func__
 
 /// @brierf WebSocket class
@@ -1616,15 +1614,17 @@ public:
     SERVER,
   };
 
-  /// Opening Handshake Headers Type <br>
+  /// opening handshake headers type
+  ///
   /// vector: pair <br>
   ///   pair::first: header name <br>
   ///   pair::second: value (it does not include \r\n)
   using headers_t = std::vector<std::pair<std::string, std::string>>;
 
-  /// Opening Handshake Type <br>
+  /// opening handshake type
+  ///
   ///   first: requset line or status line (it does not include \r\n) <br>
-  ///   second: vector<headers_t>
+  ///   second: headers_t
   using handshake_t = std::pair<std::string, headers_t>;
 
   WebSocket() = default;
@@ -1679,12 +1679,12 @@ public:
     return *this;
   }
 
-  /// @brief bind the ip address and port
+  /// @brief bind address that uri specify. <br>
+  ///   this use getaddrinfo(3) for specified uri, then open sockets and bind addresses.
   ///
-  /// @param [in] uri: bind uri. <br>
+  /// @param [in] uri: WebSocket URI <br>
   ///     uri ::= "ws://" host (":" port)? path ("?" query)? <br>
   ///     host ::= hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
-  ///     IPv6_colon_hex must be enclosed '[' and ']'.
   /// @retval reference of *this
   /// @exception CRegexException, GetaddrinfoException, LwsockExrepss
   WebSocket& bind(const std::string& uri)
@@ -1692,14 +1692,14 @@ public:
     return bind(uri, AF_UNSPEC);
   }
 
-  /// @brief bind the ip address and port
+  /// @brief bind address that uri specify. <br>
+  ///   if you use hostname for uri and want to specify IPv4 or IPv6, you should use this method.
   ///
-  /// @param [in] uri: bind uri. <br>
+  /// @param [in] uri: WebSocket URI <br>
   ///     uri ::= "ws://" host (":" port)? path ("?" query)? <br>
   ///     host ::= hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
-  ///     IPv6_colon_hex must be enclosed '[' and ']'.
-  /// @pram [in] af: AF_INET, AF_INET6, AF_UNSPEC <br>
-  ///     if you use hostname and want to specify IPv6 (or IPv4) only, then you should set AF_INET6 (or AF_INET) to af argument
+  /// @pram [in] af: AF_INET or AF_INET6 <br>
+  ///     if you want to specify that use IPv4 or IPv6 then you set this param.
   /// @retval reference of *this
   /// @exception CRegexException, GetaddrinfoException, LwsockExrepss
   WebSocket& bind(const std::string& uri, int af)
@@ -1836,7 +1836,7 @@ public:
     return *this;
   }
 
-  /// @brief listen socket
+  /// @brief listen(2) each binded sockets
   ///
   /// @param [in] backlog: listen(2)'s backlog
   /// @retval reference of *this
@@ -1865,7 +1865,7 @@ public:
 
   /// @brief accept socket
   ///
-  /// @retval new WebSocket instance
+  /// @retval a new WebSocket instance
   /// @exception LwsockException, SystemErrorException
   WebSocket accept()
   {
@@ -1931,8 +1931,8 @@ public:
 
   /// @brief accept socket
   ///
-  /// @param [out] remote: stored remote Sockaddr
-  /// @retval new WebSocket instance
+  /// @param [out] remote: this is set in with the address of the peer socket
+  /// @retval a new WebSocket instance
   /// @exception LwsockException, SystemErrorException
   WebSocket accept(Sockaddr& remote)
   {
@@ -1941,19 +1941,20 @@ public:
     return nws;
   }
 
-  /// @brief receive opening handshake request
+  /// @brief receive a opening handshake request message. blocking receive
   ///
-  /// @retval received handshake request data
+  /// @retval received handshake message parameters
   /// @exception CRegexException, LwsockExrepss, SystemErrorException
   handshake_t recv_req()
   {
     return recv_req(Timespec());
   }
 
-  /// @brief receive opening handshake request with timeout
+  /// @brief receive opening handshake request message with timeout. <br>
+  ///   recv_req internally calls recv(2) multiple times. timeout is effective that times.
   ///
-  /// @param [in] timeout: Timespec instance
-  /// @retval received handshake request data
+  /// @param [in] timeout: specify timeout. Timespec instance
+  /// @retval received handshake message parameters
   /// @exception CRegexException, LwsockExrepss, SystemErrorException
   handshake_t recv_req(const Timespec& timeout)
   {
@@ -2035,10 +2036,10 @@ public:
     return handshake_data;
   }
 
-  /// @brief send opening handshake response. <br>
-  ///   send default heades are Host, Upgrade, Connection, Sec-WebSocket-Key and Sec-WebSocket-Accept
+  /// @brief send an opening handshake response message. <br>
+  ///   send default heades. they are Host, Upgrade, Connection, Sec-WebSocket-Key and Sec-WebSocket-Accept.
   ///
-  /// @retval sent a opening handshake response message 
+  /// @retval sent a message 
   /// @exception SystemErrorException
   std::string send_res()
   {
@@ -2048,8 +2049,8 @@ public:
   /// @brief send opening handshake response with other headers. <br>
   ///   if you want to send that add other headers to default headers, then use this api.
   ///
-  /// @param [in] otherheaders: other headers. <br>
-  /// @retval sent a opening handshake response message
+  /// @param [in] otherheaders: other headers
+  /// @retval sent a message 
   /// @exception SystemErrorException
   std::string send_res(const headers_t& otherheaders)
   {
@@ -2077,10 +2078,10 @@ public:
     return send_ohandshake(handshake);
   }
 
-  /// @brief send the opening handshake message that is set completely manual.
+  /// @brief send an opening handshake response message that is set completely manual.
   ///
-  /// @param [in] handshake: handshake message.
-  /// @retval sent a opening handshake response message.
+  /// @param [in] handshake: handshake message parameters
+  /// @retval sent a message 
   /// @exception SystemErrorException
   std::string send_res_manually(const handshake_t& handshake)
   {
@@ -2089,10 +2090,9 @@ public:
 
   /// @brief connect to the server
   ///
-  /// @param [in] uri: connect to uri. <br>
+  /// @param [in] uri: WebSocket URI <br>
   ///     uri ::= "ws://" host (":" port)? path ("?" query)? <br>
   ///     host ::= hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
-  ///     IPv6_colon_hex must be enclosed '[' and ']'.
   /// @retval reference of *this
   /// @exception CRegexException, GetaddrinfoException, LwsockExrepss, SystemErrorException
   WebSocket& connect(const std::string& uri)
@@ -2105,8 +2105,7 @@ public:
   /// @param [in] uri: connect to uri. <br>
   ///     uri ::= "ws://" host (":" port)? path ("?" query)? <br>
   ///     host ::= hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
-  ///     IPv6_colon_hex must be enclosed '[' and ']'.
-  /// @param [in] timeout: Timespec instance
+  /// @param [in] timeout: specify timeout. Timespec instance
   /// @retval reference of *this
   /// @exception CRegexException, GetaddrinfoException, LwsockExrepss, SystemErrorException
   WebSocket& connect(const std::string& uri, const Timespec& timeout)
@@ -2114,23 +2113,17 @@ public:
     return connect(uri, AF_UNSPEC, timeout);
   }
 
-  /// @brief connect to the server with timeout
+  /// @brief connect to the server with timeout. and if you use hostname for uri and want to specify IPv4 or IPv6, you should use this method.
   ///
   /// @param [in] uri: connect to uri. <br>
   ///     uri ::= "ws://" host (":" port)? path ("?" query)? <br>
   ///     host ::= hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
-  ///     IPv6_colon_hex must be enclosed '[' and ']'.
-  /// @param [in] af: address family. AF_INET or AF_INET6
-  /// @param [in] timeout: Timespec instance
+  /// @pram [in] af: AF_INET or AF_INET6 <br>
+  ///     if you want to specify that use IPv4 or IPv6 then you set this param.
+  /// @param [in] timeout: specify timeout. Timespec instance
   /// @retval reference of *this
   /// @exception CRegexException, GetaddrinfoException, LwsockExrepss, SystemErrorException
   /// @remarks
-  /// e.g. connect("aa.bb.cc", AF_UNSPEC, Timespec()); <br>
-  /// e.g. connect("aa.bb.cc:10000", AF_INET, Timespec()); <br>
-  /// e.g. connect("123.456.789.111", AF_UNSPEC, Timespec()); <br>
-  /// e.g. connect("123.456.789.111:10000", AF_UNSPEC, Timespec()); <br>
-  /// e.g. connect("[1234::5678]", AF_UNSPEC, Timespec()); <br>
-  /// e.g. connect("[1234::5678]:10000", AF_UNSPEC, Timespec()); <br>
   WebSocket& connect(const std::string& uri, int af, const Timespec& timeout)
   {
     assert(mode_ == Mode::CLIENT);
@@ -2313,18 +2306,18 @@ public:
     return *this;
   }
 
-  /// @brief send a opening handshake request.
+  /// @brief send an opening handshake request message
   ///
-  /// @retval sent string transformed handshake data
+  /// @retval sent a message 
   std::string send_req()
   {
     return send_req(headers_t{});
   }
 
-  /// @brief send opening handshake request with other headers
+  /// @brief send an opening handshake request message with other headers
   ///
   /// @param [in] otherheaders: other headers
-  /// @retval sent string transformed handshake data
+  /// @retval sent a message 
   /// @exception SystemErrorException
   std::string send_req(const headers_t& otherheaders)
   {
@@ -2356,29 +2349,29 @@ public:
     return send_ohandshake(handshake);
   }
 
-  /// @brief send all the parameters set manually request
+  /// @brief send an opening handshake request message that is set completely manual.
   ///
-  /// @param [in] handshake: full manually handshake data
-  /// @retval sent string transformed handshake data
+  /// @param [in] handshake: handshake message parameters
+  /// @retval sent a message 
   /// @exception SystemErrorException
   std::string send_req_manually(const handshake_t& handshake)
   {
     return send_ohandshake(handshake);
   }
 
-  /// @brief receive opening handshake response
+  /// @brief receive an opening handshake response message
   ///
-  /// @retval pair::first: received handshake data <br>
-  ///         pair::second: status code <br>
+  /// @retval pair::first: received handshake message parameters <br>
+  ///         pair::second: status code of the 1st line <br>
   /// @exception CRegexException, LwsockExrepss, SystemErrorException
   std::pair<handshake_t, int32_t> recv_res()
   {
     return recv_res(Timespec());
   }
 
-  /// @brief receive opening handshake Response with timeout
+  /// @brief receive an opening handshake response message with timeout
   ///
-  /// @param [in] timeout: Timespec instance
+  /// @param [in] timeout: specify timeout. Timespec instance
   /// @retval pair::first: received handshake params <br>
   ///         pair::second: status code <br>
   /// @exception CRegexException, LwsockExrepss, SystemErrorException
@@ -2458,10 +2451,10 @@ public:
     return send_msg(Opcode::BINARY, payload_data.data(), payload_data.size());
   }
 
-  /// @brief receive a websocket text message from the remote with timeout
+  /// @brief receive a websocket text message from the remote
   ///
-  /// @retval pair::first: a received string message
-  ///         pair::second: status code when recieved a CLOSE
+  /// @retval pair::first: a received string message <br>
+  ///         pair::second: status code when recieved a CLOSE frame <br>
   /// @exception CRegexException, LwsockExrepss, SystemErrorException
   std::pair<std::string, int32_t> recv_msg_txt()
   {
@@ -2470,9 +2463,9 @@ public:
 
   /// @brief receive a websocket text message from the remote with timeout
   ///
-  /// @param [in] timeout: Timespec instance
-  /// @retval pair::first: a received string message
-  ///         pair::second: status code when recieved a CLOSE
+  /// @param [in] timeout: specify timeout. Timespec instance
+  /// @retval pair::first: a received string message <br>
+  ///         pair::second: status code when recieved a CLOSE frame <br>
   /// @exception LwsockException, SystemErrorException
   std::pair<std::string, int32_t> recv_msg_txt(const Timespec& timeout)
   {
@@ -2486,6 +2479,10 @@ public:
     return result;
   }
 
+  /// @brief receive a websocket binary message from the remote
+  ///
+  /// @retval pair::first: a received binary message <br>
+  ///         pair::second: status code when recieved a CLOSE frame <br>
   /// @exception LwsockException, SystemErrorException
   std::pair<std::vector<uint8_t>, int32_t> recv_msg_bin()
   {
@@ -2494,7 +2491,7 @@ public:
 
   /// @brief receive a websocket binary message from the remote with timeout
   ///
-  /// @param [in] timeout: Timespec instance
+  /// @param [in] timeout: specify timeout. Timespec instance
   /// @retval pair::first: a received binary message <br>
   ///         pair::second: status code when recieved a CLOSE <br>
   /// @exception LwsockException, SystemErrorException
@@ -2509,26 +2506,26 @@ public:
     return result;
   }
 
-  /// @brief send ping
+  /// @brief send a PING frame
   ///
-  /// @retval sent size. bytes
+  /// @retval sent data size. bytes
   /// @exception SystemErrorException
   ssize_t send_ping()
   {
     return send_msg(Opcode::PING, "", 0);
   }
 
-  /// @brief send ping with a text app data
+  /// @brief send a PING frame with a text app data
   ///
   /// @param [in] app_data: app data
-  /// @retval sent size. bytes
+  /// @retval sent data size. bytes
   /// @exception SystemErrorException
   ssize_t send_ping(const std::string& app_data)
   {
     return send_msg(Opcode::PING, app_data.data(), app_data.size());
   }
 
-  /// @brief send ping with a binary app data
+  /// @brief send PING frame with a binary app data
   ///
   /// @param [in] app_data: app data
   /// @retval sent size. bytes
@@ -2538,7 +2535,7 @@ public:
     return send_msg(Opcode::PING, app_data.data(), app_data.size());
   }
 
-  /// @brief send ping with a binary app data
+  /// @brief send PING frame with a binary app data
   ///
   /// @param [in] app_data: app data
   /// @retval sent size. bytes
@@ -2548,7 +2545,7 @@ public:
     return send_msg(Opcode::PING, app_data.data(), app_data.size());
   }
 
-  /// @brief send pong
+  /// @brief send a PONG frame
   ///
   /// @retval sent size. bytes
   /// @exception SystemErrorException
@@ -2557,7 +2554,7 @@ public:
     return send_msg(Opcode::PONG, nullptr, 0);
   }
 
-  /// @brief send pong with a text app data
+  /// @brief send a PONG frame with a text app data
   ///
   /// @param [in] app_data: app data
   /// @retval sent size. bytes
@@ -2570,7 +2567,7 @@ public:
     return send_msg(Opcode::PONG, app_data.data(), app_data.size());
   }
 
-  /// @brief send pong with a binary app data
+  /// @brief send a PONG frame with a binary app data
   ///
   /// @param [in] app_data: app data
   /// @retval sent size. bytes
@@ -2583,7 +2580,7 @@ public:
     return send_msg(Opcode::PONG, app_data.data(), app_data.size());
   }
 
-  /// @brief send pong with a binary app data
+  /// @brief send a PONG frame with a binary app data
   ///
   /// @param [in] app_data: app data
   /// @retval sent size. bytes
@@ -2596,7 +2593,7 @@ public:
     return send_msg(Opcode::PONG, app_data.data(), app_data.size());
   }
 
-  /// @brief send CLOSE frame
+  /// @brief send CLOSE frame. send CLOSE frame, then wait a response (maybe CLOSE frame) or wait closing socket from the remote.
   ///
   /// @param [in] status_code: status code
   /// @exception LwsockException, SystemErrorException
@@ -2605,21 +2602,21 @@ public:
     send_close(status_code, "", Timespec());
   }
 
-  /// @brief send CLOSE frame
+  /// @brief send CLOSE frame. send CLOSE frame, then wait a response (maybe CLOSE frame) or wait closing socket from the remote.
   ///
   /// @param [in] status_code: status code
-  /// @param [in] reason: reason
+  /// @param [in] reason: reason string
   /// @exception LwsockException, SystemErrorException
   void send_close(const uint16_t status_code, const std::string& reason)
   {
     send_close(status_code, reason, Timespec());
   }
 
-  /// @brief send CLOSE frame with timeout. send CLOSE frame, then wait a response (maybe CLOSE frame) or wait closing socket from the remote
+  /// @brief send CLOSE frame with timeout. send CLOSE frame, then wait a response (maybe CLOSE frame) or wait closing socket from the remote.
   ///
   /// @param [in] status_code: status code
   /// @param [in] reason: reason
-  /// @param [in] timeout: Timespec instance
+  /// @param [in] timeout: specify timeout. Timespec instance
   /// @exception LwsockException, SystemErrorException
   void send_close(const uint16_t status_code, const std::string& reason, const Timespec& timeout)
   {
@@ -2648,57 +2645,66 @@ public:
     close_websocket(sfd_, timeout);
   }
 
-  /// @brief get remote Sockaddr
+  /// @brief get Sockaddr about the remote
   ///
-  /// @retval remote Sockaddr
+  /// @retval Sockaddr
   Sockaddr remote()
   {
     return remote_;
   }
 
-  /// @brief get path of the received opening handshake request
+  /// @brief get the request path
   ///
-  /// @retval path
+  /// @retval path (e.g. "/path/a/b/c")
   std::string path()
   {
     return path_;
   }
 
-  /// @brief get query of the received opening handshake request
+  /// @brief get the request query parameters.
   ///
-  /// @retval query
+  /// @retval query (e.g. "?aa=123&bb=xyz")
   std::string query()
   {
     return query_;
   }
 
-  /// @brief get Origin header's value. not supported yet
+  /// @brief get the Origin header's value in the request headers, if client is a web browser.
   ///
-  /// @retval origin
+  /// @retval a value of Origin header
   std::string origin()
   {
     return origin_;
   }
 
 
-  /// @brief get reference of the raw sockfd
+  /// @brief get the raw sockfd that connected or accepted. you must not close it.
   ///
-  /// @retval sockfd
-  /// @note: Don't close the socket
+  /// @retval raw sockfd
+  /// @note: you must not close the socket
   int sfd_ref()
   {
     return sfd_;
   }
 
-  /// @brief get the raw sockfd
+  /// @brief get the raw sockfd that connected or accepted. you must not close it.
   ///
-  /// @retval sockfd
-  /// @note: You must close the socket yourself when sockfd was no necessary
+  /// @retval raw sockfd
+  /// @note: you must close the socket yourself when sockfd was no necessary
   int sfd_mv()
   {
     int sfd = sfd_;
     init();
     return sfd;
+  }
+
+  /// @brief get reference of binded sockfds
+  ///
+  /// @retval sockfds
+  /// @note: you must not close the socket
+  const std::vector<int>& bind_sfds()
+  {
+    return bind_sfds_;
   }
 
   /// @brief set ostream for log. output log to the ostream
@@ -2754,7 +2760,13 @@ private:
 
       log_(LogLevel::INFO) << "::close(sfd=" << sfd << ')' << std::endl;
 
-      ::close(sfd);
+      int ret = ::close(sfd);
+      if (ret == -1) {
+        int err = errno;
+        std::ostringstream oss;
+        oss << "::close(sfd=" << sfd << ')' << std::endl;
+        Error(err, oss.str());
+      }
 
       sfd = -1;
 
@@ -2767,7 +2779,7 @@ private:
   /// @brief close websocket with timeout. refered RFC6455 7.1.1.
   ///
   /// @param [in out] sfd: sockfd
-  /// @param [in] timeout: Timespec instance
+  /// @param [in] timeout: specify timeout. Timespec instance
   /// @exception SystemErrorException
   void close_websocket(int& sfd, const Timespec& timeout)
   {
@@ -2825,7 +2837,7 @@ private:
 
   /// @brief receive a message with timeout
   ///
-  /// @param [in] timeout: Timespec instance
+  /// @param [in] timeout: specify timeout. Timespec instance
   /// @retval pair::first: received a message. if websocket was closed from the remote, then size()==0 <br>
   ///         pair::second: staus code when websocket is closed from the remote <br>
   /// @exception LwsockException, SystemErrorException
@@ -3129,7 +3141,7 @@ private:
   /// @param [in] sfd: sockfd
   /// @param [out] buff: buffer pointer
   /// @param [in] buffsz: buffer size
-  /// @param [in] timeout: Timespec instance
+  /// @param [in] timeout: specify timeout. Timespec instance
   /// @reval > 0 received size
   /// @reval ==0 socket was closed
   /// @exception SystemErrorException
@@ -3173,7 +3185,7 @@ private:
   /// @param [in] sfd: sockfd
   /// @param [out] buff: buffer's pointer
   /// @param [in] expect_sz: expect size
-  /// @param [in] timeout: Timespec instance
+  /// @param [in] timeout: specify timeout. Timespec instance
   /// @reval > 0 received size
   /// @reval ==0 socket was closed
   /// @exception LwsockException, SystemErrorException
@@ -3222,7 +3234,7 @@ private:
   /// @brief receive untill CRLFCRLF. if there is data after CRLFCRLF, save it
   ///
   /// @param [in] sfd: sockfd
-  /// @param [in] timeout: Timespec instance
+  /// @param [in] timeout: specify timeout. Timespec instance
   /// @retval received data
   /// @exception LwsockException, SystemErrorException
   std::string recv_until_eoh(int sfd, const Timespec& timeout)
@@ -3268,7 +3280,7 @@ private:
 
   /// @brief send empty body CLOSE frame.
   ///
-  /// @param [in] timeout: Timespec instance
+  /// @param [in] timeout: specify timeout. Timespec instance
   /// this function is when receiving empty body CLOSE frame, then called.
   /// @exception LwsockException, SystemErrorException
   void send_close(const Timespec& timeout)
