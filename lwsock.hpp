@@ -948,29 +948,23 @@ private:
 inline bool is_numerichost(const std::string& host)
 {
   std::string trimed_host(trim(host, "[]"));
-  if (trimed_host == "0.0.0.0" || trimed_host == "127.0.0.1" || trimed_host == "::" || trimed_host == "::1" || trimed_host == "::0.0.0.0") {
-    return true;
+#if 0
+//  struct addrinfo hints = {0};
+//  struct addrinfo* res0 = nullptr;
+//  hints.ai_family = AF_UNSPEC;
+//  hints.ai_socktype = SOCK_STREAM;
+//  hints.ai_flags = AI_NUMERICHOST;
+//  int ret = ::getaddrinfo(trimed_host.c_str(), "80", &hints, &res0);
+//  freeaddrinfo(res0);
+//  return ret == 0;
+#else
+  uint8_t tmp[sizeof(struct in6_addr)] = {0};
+  int ret = inet_pton(AF_INET, trimed_host.c_str(), tmp);
+  if (ret != 1) {
+    ret = inet_pton(AF_INET6, trimed_host.c_str(), tmp);
   }
-
-  std::ostringstream re;
-
-  // rough regex. details consign to getaddrinfo(3).
-  //
-
-  re << '(' << R"([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})" << ')';
-  re << '|' << '(' << "[0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){7}" << ')'; // full
-  re << '|' << '(' << ":(:[0-9A-Fa-f]{1,4}){1,7}" << ')'; // skip head
-  re << '|' << '(' << "([0-9A-Fa-f]{1,4}:){1,7}:" << ')'; // skip tail
-  // skip middle
-  re << '|' << '(' << "([0-9A-Fa-f]{1,4}:){1,6}(:[0-9A-Fa-f]{1,4}){1}" << ')';
-  re << '|' << '(' << "([0-9A-Fa-f]{1,4}:){1,5}(:[0-9A-Fa-f]{1,4}){2}" << ')';
-  re << '|' << '(' << "([0-9A-Fa-f]{1,4}:){1,4}(:[0-9A-Fa-f]{1,4}){3}" << ')';
-  re << '|' << '(' << "([0-9A-Fa-f]{1,4}:){1,3}(:[0-9A-Fa-f]{1,4}){4}" << ')';
-  re << '|' << '(' << "([0-9A-Fa-f]{1,4}:){1,2}(:[0-9A-Fa-f]{1,4}){5}" << ')';
-  re << '|' << '(' << "([0-9A-Fa-f]{1,4}:){1,1}(:[0-9A-Fa-f]{1,4}){6}" << ')';
-  CRegex regex(re.str(), 20);
-  auto result = regex.exec(host);
-  return result.size() > 0;
+  return ret == 1;
+#endif
 }
 
 /// @brief split into host_port part and path_query part
