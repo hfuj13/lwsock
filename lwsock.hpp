@@ -55,9 +55,12 @@
 
 namespace lwsock {
 
-#define callee(func_name, param) \
-std::ostringstream callee; \
-{ callee << func_name << param; }
+// var string: variable name
+// func_name string: function name
+// param string: parameter
+#define DECLARE_CALLEE(var, func_name, param) \
+std::ostringstream var; \
+{ var << func_name << param; }
 
 
 constexpr char Version[] = "v1.3.3";
@@ -644,7 +647,7 @@ inline std::string b64encode(const void* src_data, int src_data_sz)
 /// @exception LwsockException
 inline std::vector<uint8_t> b64decode(const std::string& src)
 {
-  callee(__func__, "(src=\"" << src << "\")");
+  DECLARE_CALLEE(callee, __func__, "(src=\"" << src << "\")");
 
   if (src.size() % 4 != 0) {
     int err = as_int(LwsockErrc::INVALID_PARAM);
@@ -975,7 +978,7 @@ inline bool is_numerichost(const std::string& host)
 /// @exception CRegexException, LwsockExrepss
 inline std::pair<std::string, std::string> split_hostport_pathquery(const std::string& uri)
 {
-  callee(__func__, "(uri=\"" << uri << "\")");
+  DECLARE_CALLEE(callee, __func__, "(uri=\"" << uri << "\")");
   ScopedLog slog(LogLevel::TRACE, callee.str());
 
   std::string re = R"(^ws://([][0-9A-Za-z\.:\-]+)(/.*)?)";
@@ -1019,7 +1022,7 @@ inline std::pair<std::string, std::string> split_hostport_pathquery(const std::s
 /// @exception CRegexException, LwsockExrepss
 inline std::pair<std::string, std::string> split_path_query(const std::string& path_query_str)
 {
-  callee(__func__, "(path_query_str=\"" << path_query_str << "\")");
+  DECLARE_CALLEE(callee, __func__, "(path_query_str=\"" << path_query_str << "\")");
   ScopedLog slog(LogLevel::TRACE, callee.str());
 
   std::string re = R"((/?[^? ]*)(\?[^ ]*)?)";
@@ -1062,7 +1065,7 @@ inline std::pair<std::string, std::string> split_path_query(const std::string& p
 /// @exception CRegexException, LwsockExrepss
 inline std::pair<std::string, std::string> split_host_port(const std::string& host_port_str)
 {
-  callee(__func__, "(host_port_str=\"" << host_port_str << "\")");
+  DECLARE_CALLEE(callee, __func__, "(host_port_str=\"" << host_port_str << "\")");
   ScopedLog slog(LogLevel::TRACE, callee.str());
 
   std::pair<std::string, std::string> host_port;
@@ -1701,7 +1704,7 @@ public:
     assert(!uri.empty());
     assert(sfd_ == -1);
 
-    callee(WSMETHOD, "(uri=\"" << uri << "\", af=" << af2str(af) << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(uri=\"" << uri << "\", af=" << af2str(af) << ")");
     ScopedLog slog(callee.str());
 
     if (mode_ != Mode::SERVER) {
@@ -1840,7 +1843,7 @@ public:
     assert(mode_ == Mode::SERVER);
     assert(!bind_sfds_.empty());
 
-    callee(WSMETHOD, "(backlog=" << backlog << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(backlog=" << backlog << ")");
     ScopedLog slog(callee.str());
 
     std::for_each(std::begin(bind_sfds_), std::end(bind_sfds_), [&](int sfd){
@@ -1866,7 +1869,7 @@ public:
     assert(mode_ == Mode::SERVER);
     assert(!bind_sfds_.empty());
 
-    callee(WSMETHOD, "()");
+    DECLARE_CALLEE(callee, WSMETHOD, "()");
     ScopedLog slog(callee.str());
 
     fd_set rfds;
@@ -1955,7 +1958,7 @@ public:
     assert(sfd_ != -1);
     assert(mode_ == Mode::SERVER);
 
-    callee(WSMETHOD, "(timeout=" << timeout.to_string() << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(timeout=" << timeout.to_string() << ")");
     ScopedLog slog(callee.str());
 
     std::string recved_response = recv_until_eoh(sfd_, timeout);
@@ -2051,7 +2054,7 @@ public:
     assert(sfd_ != -1);
     assert(mode_ == Mode::SERVER);
 
-    callee(WSMETHOD, "() otherheaders cnt=" << otherheaders.size());
+    DECLARE_CALLEE(callee, WSMETHOD, "() otherheaders cnt=" << otherheaders.size());
     ScopedLog slog(callee.str());
 
     handshake_t handshake;
@@ -2125,7 +2128,7 @@ public:
     assert(!uri.empty());
     assert(sfd_ == -1);
 
-    callee(WSMETHOD, "(uri=\"" << uri << "\", af=" << af2str(af) << ", timeout=" << timeout.to_string() << ')');
+    DECLARE_CALLEE(callee, WSMETHOD, "(uri=\"" << uri << "\", af=" << af2str(af) << ", timeout=" << timeout.to_string() << ')');
     ScopedLog slog(callee.str());
 
     // define a function that it set nonblocking/blocking to sfd.
@@ -2318,7 +2321,7 @@ public:
     assert(sfd_ != -1);
     assert(mode_ == Mode::CLIENT);
 
-    callee(WSMETHOD, "() otherheaders cnt=" << otherheaders.size());
+    DECLARE_CALLEE(callee, WSMETHOD, "() otherheaders cnt=" << otherheaders.size());
     ScopedLog slog(callee.str());
 
     std::ostringstream first_line;
@@ -2373,7 +2376,7 @@ public:
   {
     assert(sfd_ != -1);
 
-    callee(WSMETHOD, "(timeout=" << timeout.to_string() << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(timeout=" << timeout.to_string() << ")");
     ScopedLog slog(callee.str());
 
     std::string recved_response = recv_until_eoh(sfd_, timeout);
@@ -2465,7 +2468,7 @@ public:
   {
     assert(sfd_ != -1);
 
-    callee(WSMETHOD, "(timeout=" << timeout.to_string() << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(timeout=" << timeout.to_string() << ")");
     ScopedLog slog(callee.str());
 
     std::pair<std::string, int32_t> result = recv_msg<std::string>(timeout);
@@ -2493,7 +2496,7 @@ public:
   {
     assert(sfd_ != -1);
 
-    callee(WSMETHOD, "(timeout=" << timeout.to_string() << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(timeout=" << timeout.to_string() << ")");
     ScopedLog slog(callee.str());
 
     std::pair<std::vector<uint8_t>, int32_t> result = recv_msg<std::vector<uint8_t>>(timeout);
@@ -2555,7 +2558,7 @@ public:
   /// @exception SystemErrorException
   ssize_t send_pong(const std::string& app_data)
   {
-    callee(WSMETHOD, "(app_data=0x" << std::hex << app_data << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(app_data=0x" << std::hex << app_data << ")");
     ScopedLog slog(callee.str());
 
     return send_msg(Opcode::PONG, app_data.data(), app_data.size());
@@ -2568,7 +2571,7 @@ public:
   /// @exception SystemErrorException
   ssize_t send_pong(const std::vector<uint8_t>& app_data)
   {
-    callee(WSMETHOD, "(app_data=0x" << std::hex << &app_data << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(app_data=0x" << std::hex << &app_data << ")");
     ScopedLog slog(callee.str());
 
     return send_msg(Opcode::PONG, app_data.data(), app_data.size());
@@ -2581,7 +2584,7 @@ public:
   /// @exception SystemErrorException
   template<size_t N> ssize_t send_pong(const std::array<uint8_t, N>& app_data)
   {
-    callee(WSMETHOD, "(app_data=0x" << std::hex << &app_data << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(app_data=0x" << std::hex << &app_data << ")");
     ScopedLog slog(callee.str());
 
     return send_msg(Opcode::PONG, app_data.data(), app_data.size());
@@ -2614,7 +2617,7 @@ public:
   /// @exception LwsockException, SystemErrorException
   void send_close(const uint16_t status_code, const std::string& reason, const Timespec& timeout)
   {
-    callee(WSMETHOD, "(status_code=" << status_code << ", reason=\"" << reason << "\", timeout=" << timeout.to_string() << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(status_code=" << status_code << ", reason=\"" << reason << "\", timeout=" << timeout.to_string() << ")");
     ScopedLog slog(callee.str());
 
     std::vector<uint8_t> appdata(sizeof status_code + reason.size());
@@ -2748,8 +2751,8 @@ private:
   /// @param [in out] sfd: sockfd
   void close_socket(int& sfd)
   {
+    DECLARE_CALLEE(callee, WSMETHOD, "(sfd=" << sfd << ")");
     if (sfd != -1) {
-      callee(WSMETHOD, "(sfd=" << sfd << ")");
       ScopedLog slog(LogLevel::TRACE, callee.str());
 
       log_(LogLevel::INFO) << "::close(sfd=" << sfd << ')' << std::endl;
@@ -2777,7 +2780,7 @@ private:
   /// @exception SystemErrorException
   void close_websocket(int& sfd, const Timespec& timeout)
   {
-    callee(WSMETHOD, "(sfd=" << sfd << ", timeout=" << timeout.to_string() << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(sfd=" << sfd << ", timeout=" << timeout.to_string() << ")");
     ScopedLog slog(LogLevel::TRACE, callee.str());
 
     if (sfd == -1) {
@@ -2808,7 +2811,7 @@ private:
   /// @exception SystemErrorException
   std::string send_ohandshake(const handshake_t& handshake_data)
   {
-    callee(WSMETHOD, "(handshake_data=" << std::hex << &handshake_data << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(handshake_data=" << std::hex << &handshake_data << ")");
     ScopedLog slog(LogLevel::TRACE, callee.str());
 
     std::string first_line = handshake_data.first;
@@ -2842,7 +2845,7 @@ private:
     assert(sfd_ != -1);
     assert(timeout >= -1);
 
-    callee(WSMETHOD, "(timeout=" << timeout.to_string() << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(timeout=" << timeout.to_string() << ")");
     ScopedLog slog(LogLevel::TRACE, callee.str());
 
     std::pair<T, int32_t> result{{}, 0};
@@ -3027,7 +3030,7 @@ private:
     assert(sfd_ != -1);
     assert(opcode == Opcode::TEXT || opcode == Opcode::BINARY || opcode == Opcode::CLOSE || opcode == Opcode::PING);
 
-    callee(WSMETHOD, "(opcode=0x" << std::hex << std::setw(2) << std::setfill('0') << as_int(opcode) << std::setw(0) << ", payload_data_org=" << payload_data_org << ", payload_data_sz=" << std::dec << payload_data_sz << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(opcode=0x" << std::hex << std::setw(2) << std::setfill('0') << as_int(opcode) << std::setw(0) << ", payload_data_org=" << payload_data_org << ", payload_data_sz=" << std::dec << payload_data_sz << ")");
     ScopedLog slog(LogLevel::TRACE, callee.str());
 
     AHead ahead;
@@ -3103,7 +3106,7 @@ private:
   /// @exception SystemErrorException
   ssize_t send_fill(int sfd, const void* buff, const size_t buffsz)
   {
-    callee(WSMETHOD, "(sfd=" << sfd << ", buff=" << std::hex << buff << ", buffsz=" << std::dec << buffsz << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(sfd=" << sfd << ", buff=" << std::hex << buff << ", buffsz=" << std::dec << buffsz << ")");
     ScopedLog slog(LogLevel::TRACE, callee.str());
 
     const uint8_t* ptr = static_cast<const uint8_t*>(buff);
@@ -3141,7 +3144,7 @@ private:
   /// @exception SystemErrorException
   ssize_t recv_with_timeout(int sfd, void* buff, size_t buffsz, const Timespec& timeout)
   {
-    callee(WSMETHOD, "(sfd=" << sfd << ", buff=" << std::hex << buff << ", buffsz=" << std::dec << buffsz << ", timeout=" << timeout.to_string() << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(sfd=" << sfd << ", buff=" << std::hex << buff << ", buffsz=" << std::dec << buffsz << ", timeout=" << timeout.to_string() << ")");
     ScopedLog slog(LogLevel::TRACE, callee.str());
 
     fd_set rfd;
@@ -3187,7 +3190,7 @@ private:
   {
     assert(sfd != -1);
 
-    callee(WSMETHOD, "(sfd=" << sfd << ", buff=" << std::hex << buff << ", expect_sz=" << std::dec << expect_sz << ", timeout=" << timeout.to_string() << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(sfd=" << sfd << ", buff=" << std::hex << buff << ", expect_sz=" << std::dec << expect_sz << ", timeout=" << timeout.to_string() << ")");
     ScopedLog slog(LogLevel::TRACE, callee.str());
 
     uint8_t* ptr = static_cast<uint8_t*>(buff);
@@ -3235,7 +3238,7 @@ private:
   {
     assert(recved_rest_buff_.empty());
 
-    callee(WSMETHOD, "(sfd=" << sfd << ", timeout=" << timeout.to_string() << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(sfd=" << sfd << ", timeout=" << timeout.to_string() << ")");
     ScopedLog slog(LogLevel::TRACE, callee.str());
 
     constexpr std::string::size_type NPOS = std::string::npos;
@@ -3279,7 +3282,7 @@ private:
   /// @exception LwsockException, SystemErrorException
   void send_close(const Timespec& timeout)
   {
-    callee(WSMETHOD, "(timeout=" << timeout.to_string() << ")");
+    DECLARE_CALLEE(callee, WSMETHOD, "(timeout=" << timeout.to_string() << ")");
     ScopedLog slog(LogLevel::TRACE, callee.str());
     send_msg(Opcode::CLOSE, nullptr, 0);
     close_websocket(sfd_, timeout);
@@ -3291,7 +3294,7 @@ private:
   /// @retval splited headers
   std::vector<std::pair<std::string, std::string>> split_headers(const std::string& lines_msg)
   {
-    callee(WSMETHOD, "(...)");
+    DECLARE_CALLEE(callee, WSMETHOD, "(...)");
     ScopedLog slog(LogLevel::TRACE, callee.str());
 
     using size_type = std::string::size_type;
@@ -3319,7 +3322,7 @@ private:
   /// @exception LwsockException
   void check_response_headers(const std::vector<std::pair<std::string, std::string>>& hv_lines)
   {
-    callee(WSMETHOD, "(\n");
+    DECLARE_CALLEE(callee, WSMETHOD, "(\n");
     for (auto& e : hv_lines) {
       callee << "    " << e.first << ": " << e.second << '\n';
     }
@@ -3401,7 +3404,7 @@ private:
   /// @exception LwsockException
   void check_request_headers(const std::vector<std::pair<std::string, std::string>>& hv_lines)
   {
-    callee(WSMETHOD, "(\n");
+    DECLARE_CALLEE(callee, WSMETHOD, "(\n");
     for (auto& e : hv_lines) {
       callee << "    \"" << e.first << "\": \"" << e.second << "\"\n";
     }
@@ -3624,8 +3627,3 @@ private:
 };
 
 } // namespace lwsock
-
-namespace std {
-template<> struct is_error_condition_enum<lwsock::LwsockErrc> : true_type {};
-}
-
