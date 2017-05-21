@@ -243,8 +243,9 @@ public:
   /// @param [in] lvl: output level
   std::ostream& operator()(LogLevel lvl)
   {
-    if (lvl >= level_)
-    { return (*this) << now_timestamp() << "[thd:" << std::this_thread::get_id() << "] "; }
+    if (lvl >= level_) {
+      return (*this) << now_timestamp() << "[thd:" << std::this_thread::get_id() << "] ";
+    }
     else {
       static std::ostream ost(nullptr);
       return ost;
@@ -1070,7 +1071,14 @@ inline std::pair<std::string, std::string> split_host_port(const std::string& ho
 
   std::pair<std::string, std::string> host_port;
 
-  if (host_port_str.find("[") != std::string::npos) { // maybe host part is IPv6
+  std::string anyaddr = "[::0]:0.0.0.0";
+  if (host_port_str.find(anyaddr) != std::string::npos) {
+    host_port.first = ""; // anyaddr node
+    if (host_port_str.length() > anyaddr.length()) {
+      host_port.second = host_port_str.substr(anyaddr.length()+1);
+    }
+  }
+  else if (host_port_str.find("[") != std::string::npos) { // maybe host part is numeric IPv6
     std::string re = R"((\[.*\])(:[0-9]{1,5})?)";
     size_t nmatch = 4;
     CRegex regex(re, nmatch);
@@ -1093,121 +1101,31 @@ inline std::pair<std::string, std::string> split_host_port(const std::string& ho
     }
   }
   else {
-    std::vector<std::string> tmp;
-    std::ostringstream re;
-    {
-      re.str("");
-      re << R"((^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})(:[0-9]{1,5})?)";
-      re << '|' << R"(([0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}))";
-      size_t nmatch = 20;
-      CRegex regex(re.str(), nmatch);
-      tmp = regex.exec(host_port_str);
-      if (tmp.size() > 1) {
-        switch (tmp.size()) {
-        case 3:
-          host_port.second = tmp[2].at(0) == ':' ? tmp[2].substr(1) : tmp[2];
-          //[[fallthrough]];
-        case 2:
-          host_port.first = tmp[1];
-          break;
-        default:
-          {
-            int err = as_int(LwsockErrc::INVALID_PARAM);
-            std::ostringstream oss;
-            oss << callee.str() << " invalid host_port_str.";
-            throw LwsockException(Error(err, __LINE__, oss.str()));
-          }
-          break;
-        }
-        goto func_end;
+    // There aren't collons.
+    //   hostname
+    //   IPv4
+    // There is one collon.
+    //   hostname:port
+    //   IPv4:port
+    // There are two or more collons.
+    //   IPv6
+    int cnt = std::count(std::begin(host_port_str), std::end(host_port_str), ':');
+    switch (cnt) {
+    case 0:
+      host_port.first = host_port_str;
+      break;
+    case 1:
+      {
+        std::string::size_type pos = host_port_str.find_last_of(':');
+        host_port.first = host_port_str.substr(0, pos);
+        host_port.second = host_port_str.substr(pos+1);
       }
+      break;
+    default:
+      host_port.first = host_port_str;
+      break;
     }
-
-    {
-      re.str("");
-      re << R"((([0-9A-Fa-f]{1,4}:)+:$))";
-      size_t nmatch = 20;
-      CRegex regex(re.str(), nmatch);
-      tmp = regex.exec(host_port_str);
-      if (tmp.size() > 1) {
-        host_port.first = tmp[1];
-        goto func_end;
-      }
-    }
-
-    {
-      re.str("");
-      re << '(' << "([0-9A-Fa-f]{1,4}:){1,6}(:[0-9A-Fa-f]{1,4}){1}" << ')';
-      re << '|' << '(' << "([0-9A-Fa-f]{1,4}:){1,5}(:[0-9A-Fa-f]{1,4}){2}" << ')';
-      re << '|' << '(' << "([0-9A-Fa-f]{1,4}:){1,4}(:[0-9A-Fa-f]{1,4}){3}" << ')';
-      re << '|' << '(' << "([0-9A-Fa-f]{1,4}:){1,3}(:[0-9A-Fa-f]{1,4}){4}" << ')';
-      re << '|' << '(' << "([0-9A-Fa-f]{1,4}:){1,2}(:[0-9A-Fa-f]{1,4}){5}" << ')';
-      re << '|' << '(' << "([0-9A-Fa-f]{1,4}:){1,1}(:[0-9A-Fa-f]{1,4}){6}" << ')';
-      size_t nmatch = 20;
-      CRegex regex(re.str(), nmatch);
-      tmp = regex.exec(host_port_str);
-      if (tmp.size() > 1) {
-        host_port.first = tmp[1];
-        goto func_end;
-      }
-    }
-
-    {
-      re.str("");
-      re << R"((^::[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})(:[0-9]{1,5})?$)";
-      size_t nmatch = 20;
-      CRegex regex(re.str(), nmatch);
-      tmp = regex.exec(host_port_str);
-      if (tmp.size() > 1) {
-        switch (tmp.size()) {
-        case 3:
-          host_port.second = tmp[2].at(0) == ':' ? tmp[2].substr(1) : tmp[2];
-          //[[fallthrough]];
-        case 2:
-          host_port.first = tmp[1];
-          break;
-        default:
-          {
-            int err = as_int(LwsockErrc::INVALID_PARAM);
-            std::ostringstream oss;
-            oss << callee.str() << " invalid host_port_str.";
-            throw LwsockException(Error(err, __LINE__, oss.str()));
-          }
-          break;
-        }
-        goto func_end;
-      }
-    }
-
-    {
-      re.str("");
-      re << '(' << R"([0-9A-Za-z\.\-]+?)" << ')' << "(:[0-9]{1,5})?";
-      size_t nmatch = 20;
-      CRegex regex(re.str(), nmatch);
-      tmp = regex.exec(host_port_str);
-      if (tmp.size() > 1) {
-        switch (tmp.size()) {
-        case 3:
-          host_port.second = tmp[2].at(0) == ':' ? tmp[2].substr(1) : tmp[2];
-          //[[fallthrough]];
-        case 2:
-          host_port.first = tmp[1];
-          break;
-        default:
-          {
-            int err = as_int(LwsockErrc::INVALID_PARAM);
-            std::ostringstream oss;
-            oss << callee.str() << " invalid host_port_str.";
-            throw LwsockException(Error(err, __LINE__, oss.str()));
-          }
-          break;
-        }
-        goto func_end;
-      }
-    }
-
   }
-func_end:
 
   Log& log = Log::get_instance();
   log(LogLevel::TRACE) << "    host=\"" << host_port.first << "\"\n";
@@ -1774,7 +1692,8 @@ public:
     struct addrinfo hints = {0};
     struct addrinfo* res0 = nullptr;
     struct addrinfo* res = nullptr;
-    hints.ai_flags += is_numerichost(host_) ? AI_NUMERICHOST : hints.ai_flags;
+    hints.ai_flags |= AI_PASSIVE;
+    hints.ai_flags |= is_numerichost(host_) ? AI_NUMERICHOST : hints.ai_flags;
     hints.ai_family
       = af == AF_INET ? AF_INET
       : af == AF_INET6 ? AF_INET6
@@ -1782,7 +1701,7 @@ public:
       ;
     hints.ai_socktype = SOCK_STREAM;
 
-    int ret = ::getaddrinfo(host_.c_str(), std::to_string(port_).c_str(), &hints, &res0);
+    int ret = ::getaddrinfo(host_.empty() ? NULL : host_.c_str(), std::to_string(port_).c_str(), &hints, &res0);
     if (ret != 0) {
       int err = ret;
       std::ostringstream oss;

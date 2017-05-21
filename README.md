@@ -3,7 +3,7 @@ LWSOCK
 * L: a Library, WSOCK: WebSocket
 * API is like traditional TCP client / server. (connect, bind, listen, accept, send, recv)
 * IPv6 ready
-* not depend on other libraries. (futuer may be depend on openssl or libressl etc)
+* not depend on other libraries. (futuer maybe depend on openssl or libressl etc)
 * You must control about multiple IO, thread etc by yourself.
 * lwsock doesn't management status (CONNECTING, OPEN, CLOSING, CLOSED etc). You must do it yourself.
 

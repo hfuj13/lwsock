@@ -224,10 +224,15 @@ TEST(SPLIT_HOST_PORT, split_host_port)
     ASSERT_EQ("", actual.second);
   }
 
-  { string host_port("::0.0.0.0:100");
+  { string host_port("[::0]:0.0.0.0:100");
     auto actual = split_host_port(host_port);
-    ASSERT_EQ("::0.0.0.0", actual.first);
+    ASSERT_EQ("", actual.first);
     ASSERT_EQ("100", actual.second);
+  }
+  { string host_port("[::0]:0.0.0.0");
+    auto actual = split_host_port(host_port);
+    ASSERT_EQ("", actual.first);
+    ASSERT_EQ("", actual.second);
   }
   { string host_port("::0.0.0.0");
     auto actual = split_host_port(host_port);
