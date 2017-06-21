@@ -6,6 +6,7 @@ LWSOCK
 * not depend on other libraries. (futuer maybe depend on openssl or libressl etc)
 * You must control about multiple IO, thread etc by yourself.
 * lwsock doesn't management status (CONNECTING, OPEN, CLOSING, CLOSED etc). You must do it yourself.
+* Document: https://github.com/hfuj13/lwsock/wiki
 
 Require:
 * C++14 or later
