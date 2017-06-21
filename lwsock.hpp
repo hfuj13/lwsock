@@ -97,11 +97,22 @@ enum class LwsockErrc: int32_t {
 };
 
 enum class LogLevel: int32_t {
-  TRACE = 1,
+#if 0
+  DEBUG = 1,
   DEBUG,
   INFO,
   WARNING,
   ERROR,
+#else
+    UNDER_LVL = 0,
+    VERBOSE,
+    DEBUG,
+    INFO,
+    WARNING,
+    ERROR,
+    SILENT,
+    OVER_LVL
+#endif
 };
 
 /// @brief get emum class value as int
@@ -230,146 +241,199 @@ inline std::string str2lower(const std::string& str)
   return result;
 }
 
-/// @brief Log class
-///
-/// this class output log to ostream. singleton class.
-class Log final {
+// a logger
+class alog final {
 public:
-  Log(const Log&) = delete;
-  Log(Log&&) = delete;
-  Log& operator=(const Log&) = delete;
-  Log& operator=(Log&&) = delete;
+  class scoped final {
+  public:
+    scoped() = delete;
+    scoped(const scoped&) = default;
+    scoped(scoped&&) = default;
 
-  /// @param [in] lvl: output level
-  std::ostream& operator()(LogLevel lvl)
+    scoped(const std::string& str)
+    : scoped(LogLevel::DEBUG, str) {}
+    scoped(LogLevel loglevel, const std::string& str)
+    : loglevel_(loglevel), oss_(str)
+    {
+      log_(loglevel_) << "[[[[ " << oss_.str() << std::endl;
+    }
+    ~scoped()
+    {
+      log_(loglevel_) << "]]]] " << oss_.str() << std::endl;
+    }
+    std::string str()
+    {
+      return oss_.str();
+    }
+    scoped& clear()
+    {
+      oss_.str("");
+      return *this;
+    }
+    template<typename T> friend std::ostream& operator<<(scoped& slog, const T& rhs);
+
+  private:
+    alog& log_ = alog::get_instance();
+    LogLevel loglevel_ = LogLevel::DEBUG;
+    std::ostringstream oss_;
+  };
+
+  static alog& get_instance()
   {
-    if (lvl >= level_) {
-      return (*this) << now_timestamp() << "[thd:" << std::this_thread::get_id() << "] ";
-    }
-    else {
-      static std::ostream ost(nullptr);
-      return ost;
-    }
+    return get_instance(nullptr);
   }
-
-  /// @brief set ost and get Log instance
-  ///
-  /// @param [in] ost: ostream for log output. output the log to the ostream
-  /// get Log instance after set new ostream
-  static Log& get_instance(std::ostream& ost)
+  static alog& get_instance(std::ostream& ost)
   {
     return get_instance(&ost);
   }
 
-  /// @brief get Log instance
-  static Log& get_instance()
+  bool operator==(const alog& rhs) const
   {
-    return get_instance(nullptr);
+    return &rhs == this || (rhs.level_ == level_ && rhs.ost_ == ost_);
+  }
+  bool operator!=(const alog& rhs) const
+  {
+    return (rhs.level_ != level_ || rhs.ost_ != ost_);
+  }
+  template<typename... Args> static std::string format(const std::string& fmt, Args... args)
+  {
+    constexpr int capacity = 512;
+    std::string buff(capacity, '\0');
+
+    int ret = snprintf(&buff[0], buff.capacity(), fmt.c_str(), args...);
+    if (ret > capacity) {
+      buff.reserve(ret);
+      ret = snprintf(&buff[0], buff.capacity(), fmt.c_str(), args...);
+    }
+    else if (ret < 0) {
+      abort();
+    }
+    std::string str(buff.c_str());
+    return str;
+
   }
 
-  template<typename T> friend std::ostream& operator<<(Log& log, const T& rhs);
-
-  /// @brief set new ostream
-  ///
-  /// @param [in] ost: ostream for log output. output the log to the ostream
-  /// @retval reference of *this
-  Log& ostream(std::ostream& ost)
+  // for verbose
+  std::ostream& v()
   {
-    ost_ = &ost;
-    return *this;
+    return (*this)(LogLevel::VERBOSE) << "[V]";
+  }
+  template<typename... Args> std::ostream& v(const std::string& fmt, Args... args)
+  {
+    return v() << format(fmt, args...) << std::flush;
   }
 
-  /// @brife set log level
-  ///
-  /// @param [in] lvl: log level
-  /// @retval reference of *this
-  Log& level(LogLevel lvl)
+  // for debug
+  std::ostream& d()
   {
+    return (*this)(LogLevel::DEBUG) << "[D]";
+  }
+  template<typename... Args> std::ostream& d(const std::string& fmt, Args... args)
+  {
+    return d() << format(fmt, args...) << std::flush;
+  }
+
+  // for info
+  std::ostream& i()
+  {
+    return (*this)(LogLevel::INFO) << "[I]";
+  }
+  template<typename... Args> std::ostream& i(const std::string& fmt, Args... args)
+  {
+    return i() << format(fmt, args...) << std::flush;
+  }
+
+  // for warning
+  std::ostream& w()
+  {
+    return (*this)(LogLevel::WARNING) << "[W]";
+  }
+  template<typename... Args> std::ostream& w(const std::string& fmt, Args... args)
+  {
+    return w() << format(fmt, args...) << std::flush;
+  }
+
+  // for error
+  std::ostream& e()
+  {
+    return (*this)(LogLevel::ERROR) << "[E]";
+  }
+  template<typename... Args> std::ostream& e(const std::string& fmt, Args... args)
+  {
+    return e() << format(fmt, args...) << std::flush;
+  }
+
+  // ログレベル設定が何であっても強制的に出力する
+  std::ostream& force()
+  {
+    return (*this)();
+  }
+  template<typename... Args> std::ostream& force(const std::string& fmt, Args... args)
+  {
+    return force() << format(fmt, args...) << std::flush;
+  }
+
+  template<typename T> friend std::ostream& operator<<(alog& log, const T& rhs);
+
+  alog& level(LogLevel lvl)
+  {
+    assert(LogLevel::UNDER_LVL < lvl && lvl < LogLevel::OVER_LVL);
+    if (lvl <= LogLevel::UNDER_LVL || LogLevel::OVER_LVL <= lvl) {
+      abort();
+    }
+
     level_ = lvl;
     return *this;
   }
-
-  /// @brife get log level
-  ///
-  /// @retval log level
   LogLevel level()
   {
     return level_;
   }
 
-private:
-  Log()
+  alog& ostream(std::ostream& ost)
   {
-    static std::ostream os(nullptr); // default is no output
-    ost_ = &os;
+    ost_ = &ost;
+    return *this;
   }
-  ~Log() = default;
 
-  static Log& get_instance(std::ostream* ost)
+private:
+  alog() = default;
+  alog& operator=(const alog&) = delete;
+
+  std::ostream& output()
   {
-    static Log log;
+    return (*ost_) << now_timestamp() << "[thd:" << std::this_thread::get_id() << "] ";
+  }
+
+  std::ostream& operator()()
+  {
+    return output();
+  }
+  std::ostream& operator()(LogLevel lvl)
+  {
+    return lvl >= level_ ? output() : null_ost_;
+  }
+
+  static alog& get_instance(std::ostream* ost)
+  {
+    static alog log;
     if (ost != nullptr) {
       log.ost_ = ost;
     }
     return log;
   }
-  std::ostream* ost_ = nullptr;
-  LogLevel level_ = LogLevel::ERROR;
+
+  std::ostream null_ost_{nullptr}; // /dev/null like ostream
+  LogLevel level_ = LogLevel::SILENT;
+  std::ostream* ost_ = &null_ost_;
 };
 
-// coresspond stream operator ("<<")
-template<typename T> std::ostream& operator<<(Log& log, const T& rhs)
+template<typename T> std::ostream& operator<<(alog& log, const T& rhs)
 {
   return (*log.ost_) << rhs;
 }
 
-/// @brief ScopedLog
-///
-/// this class output log when enter a scope and leave a scope
-class ScopedLog final {
-public:
-  ScopedLog() = delete;
-  ScopedLog(const ScopedLog&) = default;
-  ScopedLog(ScopedLog&&) = default;
-
-  /// @brief constructer
-  ///
-  /// @param [in] str: log string
-  ScopedLog(const std::string& str)
-  : ScopedLog(LogLevel::DEBUG, str)
-  { }
-  ScopedLog(LogLevel loglevel, const std::string& str)
-  : loglevel_(loglevel), oss_(str)
-  {
-    log_(loglevel_) << "[[[[ " << oss_.str() << std::endl;
-  }
-
-  ~ScopedLog()
-  {
-    log_(loglevel_) << "]]]] " << oss_.str() << std::endl;
-  }
-
-  std::string str()
-  {
-    return oss_.str();
-  }
-  ScopedLog& clear()
-  {
-    oss_.str("");
-    return *this;
-  }
-
-  template<typename T> friend std::ostream& operator<<(ScopedLog& slog, const T& rhs);
-
-private:
-  //std::ostream& ost_;
-  Log& log_ = Log::get_instance();
-  LogLevel loglevel_ = LogLevel::DEBUG;
-  std::ostringstream oss_;
-};
-
-// coresspond stream operator ("<<")
-template<typename T> std::ostream& operator<<(ScopedLog& slog, const T& rhs)
+template<typename T> std::ostream& operator<<(alog::scoped& slog, const T& rhs)
 {
   return slog.oss_ << rhs;
 }
@@ -394,8 +458,8 @@ public:
       oss << "errcode=" << errcode_ << ". " << what_arg;
       what_ = oss.str();
     }
-    Log& log = Log::get_instance();
-    log(LogLevel::ERROR) << what_ << std::endl;
+    alog& log = alog::get_instance();
+    log.e() << what_ << std::endl;
   }
   Error(int errcode, uint32_t line)
   : Error(errcode, line, "")
@@ -561,8 +625,9 @@ public:
   CRegex(const std::string& re, size_t nmatch)
   : nmatch_(nmatch)
   {
-    Log& log = Log::get_instance();
-    log(LogLevel::TRACE) << "CRegex(re=\"" << re << "\", nmatch=" << nmatch << ')' << std::endl;
+    alog& log = alog::get_instance();
+    //log(LogLevel::DEBUG) << "CRegex(re=\"" << re << "\", nmatch=" << nmatch << ')' << std::endl;
+    log.d() << "CRegex(re=\"" << re << "\", nmatch=" << nmatch << ')' << std::endl;
 
     int err = regcomp(&regbuff_, re.c_str(), REG_EXTENDED);
     if (err != 0) {
@@ -980,7 +1045,7 @@ inline bool is_numerichost(const std::string& host)
 inline std::pair<std::string, std::string> split_hostport_pathquery(const std::string& uri)
 {
   DECLARE_CALLEE(callee, __func__, "(uri=\"" << uri << "\")");
-  ScopedLog slog(LogLevel::TRACE, callee.str());
+  alog::scoped slog(LogLevel::DEBUG, callee.str());
 
   std::string re = R"(^ws://([][0-9A-Za-z\.:\-]+)(/.*)?)";
   size_t nmatch = 4;
@@ -1006,9 +1071,9 @@ inline std::pair<std::string, std::string> split_hostport_pathquery(const std::s
     break;
   }
 
-  Log& log = Log::get_instance();
-  log(LogLevel::TRACE) << "    hostport=\"" << hostport_pathquery.first << "\"\n";
-  log(LogLevel::TRACE) << "    pathquery=\"" << hostport_pathquery.second << '\"'<< std::endl;
+  alog& log = alog::get_instance();
+  log.d() << "    hostport=\"" << hostport_pathquery.first << "\"\n";
+  log.d() << "    pathquery=\"" << hostport_pathquery.second << '\"'<< std::endl;
 
   slog.clear() << __func__ << "(...)";
 
@@ -1024,7 +1089,7 @@ inline std::pair<std::string, std::string> split_hostport_pathquery(const std::s
 inline std::pair<std::string, std::string> split_path_query(const std::string& path_query_str)
 {
   DECLARE_CALLEE(callee, __func__, "(path_query_str=\"" << path_query_str << "\")");
-  ScopedLog slog(LogLevel::TRACE, callee.str());
+  alog::scoped slog(LogLevel::DEBUG, callee.str());
 
   std::string re = R"((/?[^? ]*)(\?[^ ]*)?)";
   size_t nmatch = 4;
@@ -1050,9 +1115,9 @@ inline std::pair<std::string, std::string> split_path_query(const std::string& p
     break;
   }
 
-  Log& log = Log::get_instance();
-  log(LogLevel::TRACE) << "    path=\"" << path_query.first << "\"\n";
-  log(LogLevel::TRACE) << "    query=\"" << path_query.second << '\"'<< std::endl;
+  alog& log = alog::get_instance();
+  log.d() << "    path=\"" << path_query.first << "\"\n";
+  log.d() << "    query=\"" << path_query.second << '\"'<< std::endl;
 
   slog.clear() << __func__ << "(...)";
   return path_query;
@@ -1067,7 +1132,7 @@ inline std::pair<std::string, std::string> split_path_query(const std::string& p
 inline std::pair<std::string, std::string> split_host_port(const std::string& host_port_str)
 {
   DECLARE_CALLEE(callee, __func__, "(host_port_str=\"" << host_port_str << "\")");
-  ScopedLog slog(LogLevel::TRACE, callee.str());
+  alog::scoped slog(LogLevel::DEBUG, callee.str());
 
   std::pair<std::string, std::string> host_port;
 
@@ -1127,9 +1192,9 @@ inline std::pair<std::string, std::string> split_host_port(const std::string& ho
     }
   }
 
-  Log& log = Log::get_instance();
-  log(LogLevel::TRACE) << "    host=\"" << host_port.first << "\"\n";
-  log(LogLevel::TRACE) << "    port=\"" << host_port.second << '\"'<< std::endl;
+  alog& log = alog::get_instance();
+  log.d() << "    host=\"" << host_port.first << "\"\n";
+  log.d() << "    port=\"" << host_port.second << '\"'<< std::endl;
 
   slog.clear() << __func__ << "()";
   return host_port;
@@ -1623,12 +1688,12 @@ public:
     assert(sfd_ == -1);
 
     DECLARE_CALLEE(callee, WSMETHOD, "(uri=\"" << uri << "\", af=" << af2str(af) << ")");
-    ScopedLog slog(callee.str());
+    alog::scoped slog(callee.str());
 
     if (mode_ != Mode::SERVER) {
       int err = as_int(LwsockErrc::INVALID_MODE);
       std::ostringstream oss;
-      oss << callee.str() << " invalid mode. expect Mode::SERVER, actual Mode::CLIENT.";
+      oss << callee.str() << " invalid mode. expect Mode::SERVER.";
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
 
@@ -1684,7 +1749,7 @@ public:
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
 
-    log_(LogLevel::INFO)
+    log_.i()
         << "host_=\"" << host_ << '\"' << ", port=" << port_ << ", path_=\"" << path_ << '\"' << ", query=\"" << query_ << '\"'
         << std::endl
         ;
@@ -1713,10 +1778,10 @@ public:
       int sfd = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
       if (sfd < 0) {
         int err = errno;
-        log_(LogLevel::WARNING) << "::socket(" << res->ai_family << ", " << res->ai_socktype << ", " << res->ai_protocol << ") error=" << err << ". " << strerror(err) << ". Try next." << std::endl;
+        log_.w() << "::socket(" << res->ai_family << ", " << res->ai_socktype << ", " << res->ai_protocol << ") error=" << err << ". " << strerror(err) << ". Try next." << std::endl;
         continue;
       }
-      log_(LogLevel::TRACE) << "::socket() sfd=" << sfd << std::endl;
+      log_.d() << "::socket() sfd=" << sfd << std::endl;
 
       int on = 1;
       if (res->ai_family == AF_INET6) {
@@ -1732,11 +1797,11 @@ public:
       ret = ::bind(sfd, res->ai_addr, res->ai_addrlen);
       if (ret < 0) {
         int err = errno;
-        log_(LogLevel::WARNING) << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". closed socket. Try next." << std::endl;
+        log_.w() << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". closed socket. Try next." << std::endl;
         close_socket(sfd);
         continue;
       }
-      log_(LogLevel::INFO) << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ")" << std::endl;
+      log_.i() << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ")" << std::endl;
 
       bind_sfds_.push_back(sfd);
     }
@@ -1763,7 +1828,7 @@ public:
     assert(!bind_sfds_.empty());
 
     DECLARE_CALLEE(callee, WSMETHOD, "(backlog=" << backlog << ")");
-    ScopedLog slog(callee.str());
+    alog::scoped slog(callee.str());
 
     std::for_each(std::begin(bind_sfds_), std::end(bind_sfds_), [&](int sfd){
       int ret = ::listen(sfd, backlog);
@@ -1773,7 +1838,7 @@ public:
         oss << callee.str() << "::listen(sfd=" << sfd << ", backlog=" << backlog << ")";
         throw SystemErrorException(Error(err, __LINE__, oss.str()));
       }
-      log_(LogLevel::INFO) << "::listen(sfd=" << sfd << ", backlog=" << backlog << ")" << std::endl;
+      log_.i() << "::listen(sfd=" << sfd << ", backlog=" << backlog << ")" << std::endl;
     });
 
     return *this;
@@ -1789,13 +1854,13 @@ public:
     assert(!bind_sfds_.empty());
 
     DECLARE_CALLEE(callee, WSMETHOD, "()");
-    ScopedLog slog(callee.str());
+    alog::scoped slog(callee.str());
 
     fd_set rfds;
     FD_ZERO(&rfds);
     int maxsfd = -1;
 
-    log_(LogLevel::INFO) << "::pselect() wait sfds=";
+    log_.i() << "::pselect() wait sfds=";
     for (size_t i = 0; i < bind_sfds_.size(); ++i) {
       int sfd = bind_sfds_[i];
       FD_SET(sfd, &rfds);
@@ -1841,7 +1906,7 @@ public:
     ws.query_ = query_;
     remote_ = Sockaddr(remote);
 
-    log_(LogLevel::INFO) << "::accept(sfd=" << sfd << ", ...) newsfd=" << newsfd << ", remote=" << remote_.ip() << ", port=" << remote_.port() << std::endl;
+    log_.i() << "::accept(sfd=" << sfd << ", ...) newsfd=" << newsfd << ", remote=" << remote_.ip() << ", port=" << remote_.port() << std::endl;
     return ws;
   }
 
@@ -1878,10 +1943,10 @@ public:
     assert(mode_ == Mode::SERVER);
 
     DECLARE_CALLEE(callee, WSMETHOD, "(timeout=" << timeout.to_string() << ")");
-    ScopedLog slog(callee.str());
+    alog::scoped slog(callee.str());
 
     std::string recved_response = recv_until_eoh(sfd_, timeout);
-    log_(LogLevel::DEBUG) << '\"' << recved_response << '\"'<< std::endl;
+    log_.d() << '\"' << recved_response << '\"'<< std::endl;
 
     handshake_t handshake_data;
     try {
@@ -1974,7 +2039,7 @@ public:
     assert(mode_ == Mode::SERVER);
 
     DECLARE_CALLEE(callee, WSMETHOD, "() otherheaders cnt=" << otherheaders.size());
-    ScopedLog slog(callee.str());
+    alog::scoped slog(callee.str());
 
     handshake_t handshake;
     handshake.first = "HTTP/1.1 101 Switching Protocols\r\n";
@@ -2048,7 +2113,7 @@ public:
     assert(sfd_ == -1);
 
     DECLARE_CALLEE(callee, WSMETHOD, "(uri=\"" << uri << "\", af=" << af2str(af) << ", timeout=" << timeout.to_string() << ')');
-    ScopedLog slog(callee.str());
+    alog::scoped slog(callee.str());
 
     // define a function that it set nonblocking/blocking to sfd.
     // If nonblock is true, sfd is sat nonblocking.
@@ -2098,7 +2163,7 @@ public:
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
 
-    log_(LogLevel::INFO) << "host=\"" << host_ << "\", port=" << port_ << ", path=\"" << path_ << "\", query=\"" << query_  << '\"' << std::endl;
+    log_.i() << "host=\"" << host_ << "\", port=" << port_ << ", path=\"" << path_ << "\", query=\"" << query_  << '\"' << std::endl;
 
     int available_sfd = -1;
     struct addrinfo hints = {0};
@@ -2123,10 +2188,10 @@ public:
       int sfd = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
       if (sfd < 0) {
         int err = errno;
-        log_(LogLevel::WARNING) << "socket(" << res->ai_family << ", " << res->ai_socktype << ", " << res->ai_protocol << ") error=" << err << ". " << strerror(err) << ". Try next." << std::endl;
+        log_.w() << "socket(" << res->ai_family << ", " << res->ai_socktype << ", " << res->ai_protocol << ") error=" << err << ". " << strerror(err) << ". Try next." << std::endl;
         continue;
       }
-      log_(LogLevel::TRACE) << "socket() opened sfd=" << sfd << std::endl;
+      log_.d() << "socket() opened sfd=" << sfd << std::endl;
 
       int on = 1;
       if (res->ai_family == AF_INET6) {
@@ -2139,7 +2204,7 @@ public:
       if (ret == 0) {
         sfd_nonblock(sfd, false); // reset blocking mode
         Sockaddr saddr(res->ai_addr, res->ai_addrlen);
-        log_(LogLevel::TRACE) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") success" << std::endl;
+        log_.d() << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") success" << std::endl;
         available_sfd = sfd;
         break;
       }
@@ -2155,7 +2220,7 @@ public:
           FD_ZERO(&wfd);
           FD_SET(sfd, &wfd);
           ret = 0;
-          log_(LogLevel::TRACE) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ", timeout=" << timeout.to_string() << ')' << std::endl;
+          log_.d() << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ", timeout=" << timeout.to_string() << ')' << std::endl;
           int nfds = sfd + 1;
           ret = pselect(nfds, &rfd, &wfd, nullptr, timeout.ptr(), nullptr);
           if (ret == -1) {
@@ -2166,7 +2231,7 @@ public:
             throw SystemErrorException(Error(err, __LINE__, oss.str()));
           }
           else if (ret == 0) {
-            log_(LogLevel::WARNING) << "::connect() is timeouted, try next." << std::endl;
+            log_.w() << "::connect() is timeouted, try next." << std::endl;
             close_socket(sfd);
             break; // try a next connection
           }
@@ -2180,10 +2245,10 @@ public:
               }
               Sockaddr saddr(res->ai_addr, res->ai_addrlen);
               if (ret == 0) {
-                log_(LogLevel::WARNING) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") is closed from the server. Try next" << std::endl;
+                log_.w() << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") is closed from the server. Try next" << std::endl;
               }
               else {
-                log_(LogLevel::WARNING) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". Try next" << std::endl;
+                log_.w() << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". Try next" << std::endl;
               }
               close_socket(sfd);
               continue;
@@ -2202,7 +2267,7 @@ public:
         else {
           close_socket(sfd);
           Sockaddr saddr(res->ai_addr, res->ai_addrlen);
-          log_(LogLevel::WARNING) << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". closed socket. Try next." << std::endl;
+          log_.w() << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". closed socket. Try next." << std::endl;
 
         }
       }
@@ -2217,7 +2282,7 @@ public:
     }
 
     sfd_ = available_sfd;
-    log_(LogLevel::INFO) << WSMETHOD << "(sfd=" << sfd_ << ") connect success." << std::endl;
+    log_.i() << WSMETHOD << "(sfd=" << sfd_ << ") connect success." << std::endl;
 
     return *this;
   }
@@ -2241,7 +2306,7 @@ public:
     assert(mode_ == Mode::CLIENT);
 
     DECLARE_CALLEE(callee, WSMETHOD, "() otherheaders cnt=" << otherheaders.size());
-    ScopedLog slog(callee.str());
+    alog::scoped slog(callee.str());
 
     std::ostringstream first_line;
     first_line << "GET " << path_ << query_ << " HTTP/1.1" << EOL;
@@ -2296,7 +2361,7 @@ public:
     assert(sfd_ != -1);
 
     DECLARE_CALLEE(callee, WSMETHOD, "(timeout=" << timeout.to_string() << ")");
-    ScopedLog slog(callee.str());
+    alog::scoped slog(callee.str());
 
     std::string recved_response = recv_until_eoh(sfd_, timeout);
 
@@ -2328,11 +2393,11 @@ public:
       throw LwsockException(Error(e.code(), __LINE__, oss.str()));
     }
 
-    log_(LogLevel::DEBUG) << handshake_data.first << std::endl;
+    log_.d() << handshake_data.first << std::endl;
     for (auto& elm : handshake_data.second) {
-      log_(LogLevel::DEBUG) << elm.first << ':' << elm.second << '\n';
+      log_.d() << elm.first << ':' << elm.second << '\n';
     }
-    log_(LogLevel::DEBUG) << std::endl;
+    log_.d() << std::endl;
 
     return std::pair<handshake_t, int32_t>(handshake_data, status_code);
   }
@@ -2388,7 +2453,7 @@ public:
     assert(sfd_ != -1);
 
     DECLARE_CALLEE(callee, WSMETHOD, "(timeout=" << timeout.to_string() << ")");
-    ScopedLog slog(callee.str());
+    alog::scoped slog(callee.str());
 
     std::pair<std::string, int32_t> result = recv_msg<std::string>(timeout);
 
@@ -2416,7 +2481,7 @@ public:
     assert(sfd_ != -1);
 
     DECLARE_CALLEE(callee, WSMETHOD, "(timeout=" << timeout.to_string() << ")");
-    ScopedLog slog(callee.str());
+    alog::scoped slog(callee.str());
 
     std::pair<std::vector<uint8_t>, int32_t> result = recv_msg<std::vector<uint8_t>>(timeout);
     return result;
@@ -2478,7 +2543,7 @@ public:
   ssize_t send_pong(const std::string& app_data)
   {
     DECLARE_CALLEE(callee, WSMETHOD, "(app_data=0x" << std::hex << app_data << ")");
-    ScopedLog slog(callee.str());
+    alog::scoped slog(callee.str());
 
     return send_msg(Opcode::PONG, app_data.data(), app_data.size());
   }
@@ -2491,7 +2556,7 @@ public:
   ssize_t send_pong(const std::vector<uint8_t>& app_data)
   {
     DECLARE_CALLEE(callee, WSMETHOD, "(app_data=0x" << std::hex << &app_data << ")");
-    ScopedLog slog(callee.str());
+    alog::scoped slog(callee.str());
 
     return send_msg(Opcode::PONG, app_data.data(), app_data.size());
   }
@@ -2504,7 +2569,7 @@ public:
   template<size_t N> ssize_t send_pong(const std::array<uint8_t, N>& app_data)
   {
     DECLARE_CALLEE(callee, WSMETHOD, "(app_data=0x" << std::hex << &app_data << ")");
-    ScopedLog slog(callee.str());
+    alog::scoped slog(callee.str());
 
     return send_msg(Opcode::PONG, app_data.data(), app_data.size());
   }
@@ -2537,7 +2602,7 @@ public:
   void send_close(const uint16_t status_code, const std::string& reason, const Timespec& timeout)
   {
     DECLARE_CALLEE(callee, WSMETHOD, "(status_code=" << status_code << ", reason=\"" << reason << "\", timeout=" << timeout.to_string() << ")");
-    ScopedLog slog(callee.str());
+    alog::scoped slog(callee.str());
 
     std::vector<uint8_t> appdata(sizeof status_code + reason.size());
     {
@@ -2603,7 +2668,7 @@ public:
     return sfd_;
   }
 
-  /// @brief get the raw sockfd that connected or accepted. you must not close it.
+  /// @brief get the raw sockfd that connected or accepted.
   ///
   /// @retval raw sockfd
   /// @note: you must close the socket yourself when sockfd was no necessary
@@ -2672,9 +2737,9 @@ private:
   {
     DECLARE_CALLEE(callee, WSMETHOD, "(sfd=" << sfd << ")");
     if (sfd != -1) {
-      ScopedLog slog(LogLevel::TRACE, callee.str());
+      alog::scoped slog(LogLevel::DEBUG, callee.str());
 
-      log_(LogLevel::INFO) << "::close(sfd=" << sfd << ')' << std::endl;
+      log_.i() << "::close(sfd=" << sfd << ')' << std::endl;
 
       int ret = ::close(sfd);
       if (ret == -1) {
@@ -2700,7 +2765,7 @@ private:
   void close_websocket(int& sfd, const Timespec& timeout)
   {
     DECLARE_CALLEE(callee, WSMETHOD, "(sfd=" << sfd << ", timeout=" << timeout.to_string() << ")");
-    ScopedLog slog(LogLevel::TRACE, callee.str());
+    alog::scoped slog(LogLevel::DEBUG, callee.str());
 
     if (sfd == -1) {
       return;
@@ -2731,7 +2796,7 @@ private:
   std::string send_ohandshake(const handshake_t& handshake_data)
   {
     DECLARE_CALLEE(callee, WSMETHOD, "(handshake_data=" << std::hex << &handshake_data << ")");
-    ScopedLog slog(LogLevel::TRACE, callee.str());
+    alog::scoped slog(LogLevel::DEBUG, callee.str());
 
     std::string first_line = handshake_data.first;
     headers_t headers = handshake_data.second;
@@ -2742,12 +2807,12 @@ private:
       oss << header.first << ": " << header.second << EOL;
     }
     oss << EOL;
-    //log_(LogLevel::TRACE) << "\"" << oss.str() << "\" size=" << std::dec << oss.str().size() << std::endl;
-    log_(LogLevel::DEBUG) << '\"' << oss.str() << '\"' << std::endl;
+    //log_(LogLevel::DEBUG) << "\"" << oss.str() << "\" size=" << std::dec << oss.str().size() << std::endl;
+    log_.d() << '\"' << oss.str() << '\"' << std::endl;
 
     size_t ret = send_fill(sfd_, oss.str().c_str(), oss.str().size());
     assert(ret == oss.str().size());
-    log_(LogLevel::DEBUG) << "sent size=" << oss.str().size() << std::endl;
+    log_.d() << "sent size=" << oss.str().size() << std::endl;
     return oss.str();
   }
 
@@ -2765,13 +2830,13 @@ private:
     assert(timeout >= -1);
 
     DECLARE_CALLEE(callee, WSMETHOD, "(timeout=" << timeout.to_string() << ")");
-    ScopedLog slog(LogLevel::TRACE, callee.str());
+    alog::scoped slog(LogLevel::DEBUG, callee.str());
 
     std::pair<T, int32_t> result{{}, 0};
     AHead ahead;
     bool txtflg = false;
     do {
-      log_(LogLevel::TRACE) << "  [[ receive a part of header ..." << std::endl;
+      log_.d() << "  [[ receive a part of header ..." << std::endl;
       ssize_t ret = recv_fill(sfd_, ahead.data_ptr(), ahead.size(), timeout);
       if (ret == 0) { // socket is closed.
         result.first.clear();
@@ -2779,7 +2844,7 @@ private:
         close_socket(sfd_);
         return result;
       }
-      log_(LogLevel::TRACE) << "  ]] receive a part of header...result="
+      log_.d() << "  ]] receive a part of header...result="
         << " raw=0x" << std::hex << std::setw(4) << std::setfill('0') << ahead.data() << std::dec
         << ", fin=" << ahead.fin() << ", rsv1=" << ahead.rsv1() << ", rsv2=" << ahead.rsv2() << ", rsv3=" << ahead.rsv3()
         << ", opcode=0x" << std::hex << std::setw(2) << std::setfill('0') << as_int(ahead.opcode()) << std::setw(0) << std::dec
@@ -2794,7 +2859,7 @@ private:
         int err = as_int(LwsockErrc::FRAME_ERROR);
         std::ostringstream oss;
         oss << callee.str() << " rsv1=" << ahead.rsv1() << ", rsv2=" << ahead.rsv2() << ", rsv3=" << ahead.rsv3();
-        log_(LogLevel::WARNING) << oss.str() << std::endl;
+        log_.w() << oss.str() << std::endl;
         close_websocket(sfd_, timeout);
         throw LwsockException(Error(err, __LINE__, oss.str()));
       }
@@ -2834,7 +2899,7 @@ private:
         payload_len = ahead.payload_len();
         break;
       }
-      log_(LogLevel::TRACE) << "  eventually payload len=" << payload_len << std::endl;
+      log_.d() << "  eventually payload len=" << payload_len << std::endl;
 
       if ((mode_ == Mode::SERVER && ahead.mask() == 0) || (mode_ == Mode::CLIENT && ahead.mask() == 1)) {
         int err = as_int(LwsockErrc::BAD_MESSAGE);
@@ -2847,10 +2912,10 @@ private:
 
       uint32_t masking_key = 0;
       if (ahead.mask()) {
-        log_(LogLevel::TRACE) << "  [[ receive masking key..." << std::endl;
+        log_.d() << "  [[ receive masking key..." << std::endl;
         ret = recv_fill(sfd_, &masking_key, sizeof masking_key, timeout);
         // TODO ret == 0 case
-        log_(LogLevel::TRACE) << "  ]] receive masking key...raw=0x" << std::hex << std::setw(8) << std::setfill('0') << masking_key << std::endl;
+        log_.d() << "  ]] receive masking key...raw=0x" << std::hex << std::setw(8) << std::setfill('0') << masking_key << std::endl;
       }
 
       // receive payload data
@@ -2874,12 +2939,12 @@ private:
 
       case Opcode::PING:
         {
-          log_(LogLevel::INFO) << "received Ping frame. app_data_sz=" << payload_data.size() << ", then send PONG" << std::endl;
+          log_.i() << "received Ping frame. app_data_sz=" << payload_data.size() << ", then send PONG" << std::endl;
           send_pong(payload_data);
         }
         continue;
       case Opcode::PONG:
-        log_(LogLevel::INFO) << "received Pong frame. app_data_sz=" << payload_data.size() << std::endl;
+        log_.i() << "received Pong frame. app_data_sz=" << payload_data.size() << std::endl;
         continue;
       case Opcode::CLOSE:
         {
@@ -2889,12 +2954,12 @@ private:
             uint16_t be_scode = 0; // big endian status code
             ::memcpy(&be_scode, payload_data.data(), sizeof be_scode);
             scode = ntohs(be_scode); // status code
-            log_(LogLevel::INFO) << "received CLOSE frame from the remote, status_code=" << std::dec << scode << ", then send CLOSE" << std::endl;
+            log_.i() << "received CLOSE frame from the remote, status_code=" << std::dec << scode << ", then send CLOSE" << std::endl;
             result.first.clear();
             result.second = scode;
           }
           else {
-            log_(LogLevel::INFO) << "received CLOSE frame from the remote, status_code is none," << ", then send CLOSE" << std::endl;
+            log_.i() << "received CLOSE frame from the remote, status_code is none," << ", then send CLOSE" << std::endl;
             result.first.clear();
             result.second = 1005;
             reason = "RFC6455 7.1.5. \"If this Close control frame contains no status code, The WebSocket Connection Close Code is considered to be 1005.\"";
@@ -2950,7 +3015,7 @@ private:
     assert(opcode == Opcode::TEXT || opcode == Opcode::BINARY || opcode == Opcode::CLOSE || opcode == Opcode::PING);
 
     DECLARE_CALLEE(callee, WSMETHOD, "(opcode=0x" << std::hex << std::setw(2) << std::setfill('0') << as_int(opcode) << std::setw(0) << ", payload_data_org=" << payload_data_org << ", payload_data_sz=" << std::dec << payload_data_sz << ")");
-    ScopedLog slog(LogLevel::TRACE, callee.str());
+    alog::scoped slog(LogLevel::DEBUG, callee.str());
 
     AHead ahead;
     ahead.fin(1);
@@ -3026,7 +3091,7 @@ private:
   ssize_t send_fill(int sfd, const void* buff, const size_t buffsz)
   {
     DECLARE_CALLEE(callee, WSMETHOD, "(sfd=" << sfd << ", buff=" << std::hex << buff << ", buffsz=" << std::dec << buffsz << ")");
-    ScopedLog slog(LogLevel::TRACE, callee.str());
+    alog::scoped slog(LogLevel::DEBUG, callee.str());
 
     const uint8_t* ptr = static_cast<const uint8_t*>(buff);
     size_t sent_sz = 0;
@@ -3064,7 +3129,7 @@ private:
   ssize_t recv_with_timeout(int sfd, void* buff, size_t buffsz, const Timespec& timeout)
   {
     DECLARE_CALLEE(callee, WSMETHOD, "(sfd=" << sfd << ", buff=" << std::hex << buff << ", buffsz=" << std::dec << buffsz << ", timeout=" << timeout.to_string() << ")");
-    ScopedLog slog(LogLevel::TRACE, callee.str());
+    alog::scoped slog(LogLevel::DEBUG, callee.str());
 
     fd_set rfd;
     FD_ZERO(&rfd);
@@ -3110,13 +3175,13 @@ private:
     assert(sfd != -1);
 
     DECLARE_CALLEE(callee, WSMETHOD, "(sfd=" << sfd << ", buff=" << std::hex << buff << ", expect_sz=" << std::dec << expect_sz << ", timeout=" << timeout.to_string() << ")");
-    ScopedLog slog(LogLevel::TRACE, callee.str());
+    alog::scoped slog(LogLevel::DEBUG, callee.str());
 
     uint8_t* ptr = static_cast<uint8_t*>(buff);
     size_t recved_sz = 0;
 
     // if received data when opening handshake is rest, then copy it
-    log_(LogLevel::TRACE) << "    recved_rest_buff.size()=" << recved_rest_buff_.size() << std::endl;
+    log_.d() << "    recved_rest_buff.size()=" << recved_rest_buff_.size() << std::endl;
     if (!recved_rest_buff_.empty()) {
       size_t sz = recved_rest_buff_.size();
       if (sz > expect_sz) {
@@ -3158,7 +3223,7 @@ private:
     assert(recved_rest_buff_.empty());
 
     DECLARE_CALLEE(callee, WSMETHOD, "(sfd=" << sfd << ", timeout=" << timeout.to_string() << ")");
-    ScopedLog slog(LogLevel::TRACE, callee.str());
+    alog::scoped slog(LogLevel::DEBUG, callee.str());
 
     constexpr std::string::size_type NPOS = std::string::npos;
     std::string recved_msg;
@@ -3189,7 +3254,7 @@ private:
       std::copy(std::begin(recved_msg) + pos + eohsz, std::end(recved_msg), std::back_inserter(recved_rest_buff_));
     }
 
-    log_(LogLevel::TRACE) << result << std::endl;
+    log_.d() << result << std::endl;
 
     return result;
   }
@@ -3202,7 +3267,7 @@ private:
   void send_close(const Timespec& timeout)
   {
     DECLARE_CALLEE(callee, WSMETHOD, "(timeout=" << timeout.to_string() << ")");
-    ScopedLog slog(LogLevel::TRACE, callee.str());
+    alog::scoped slog(LogLevel::DEBUG, callee.str());
     send_msg(Opcode::CLOSE, nullptr, 0);
     close_websocket(sfd_, timeout);
   }
@@ -3214,7 +3279,7 @@ private:
   std::vector<std::pair<std::string, std::string>> split_headers(const std::string& lines_msg)
   {
     DECLARE_CALLEE(callee, WSMETHOD, "(...)");
-    ScopedLog slog(LogLevel::TRACE, callee.str());
+    alog::scoped slog(LogLevel::DEBUG, callee.str());
 
     using size_type = std::string::size_type;
     constexpr size_type NPOS(std::string::npos);
@@ -3228,7 +3293,7 @@ private:
       size_type p = line.find_first_of(':');
       std::string header_name = line.substr(0, p);
       std::string value = p == NPOS ? "" : trim(line.substr(p+1));
-      log_(LogLevel::TRACE) << "  header_name=\"" << header_name << "\", value=\"" << value << '\"' << std::endl;
+      log_.d() << "  header_name=\"" << header_name << "\", value=\"" << value << '\"' << std::endl;
       headers.push_back(std::make_pair(std::move(header_name), std::move(value)));
     }
 
@@ -3246,7 +3311,7 @@ private:
       callee << "    " << e.first << ": " << e.second << '\n';
     }
     callee << ")";
-    ScopedLog slog(LogLevel::TRACE, callee.str());
+    alog::scoped slog(LogLevel::DEBUG, callee.str());
 
     // check "Upgrade" header
     {
@@ -3328,7 +3393,7 @@ private:
       callee << "    \"" << e.first << "\": \"" << e.second << "\"\n";
     }
     callee << ")";
-    ScopedLog slog(LogLevel::TRACE, callee.str());
+    alog::scoped slog(LogLevel::DEBUG, callee.str());
     slog.clear() << WSMETHOD << "(...)";
 
     // check "Host" header existing
@@ -3531,7 +3596,7 @@ private:
     return masked_data;
   }
 
-  Log& log_ = Log::get_instance();
+  alog& log_ = alog::get_instance();
   Mode mode_ = Mode::NONE;
   int sfd_ = -1;
   std::vector<int> bind_sfds_;
