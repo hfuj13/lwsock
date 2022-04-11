@@ -63,7 +63,7 @@ std::ostringstream var; \
 { var << func_name << param; }
 
 
-constexpr char Version[] = "v1.3.3";
+constexpr char Version[] = "v1.4.1";
 constexpr char B64chs[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 constexpr char GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 constexpr char EOL[] = "\r\n"; // end of line
@@ -297,12 +297,10 @@ public:
   }
   template<typename... Args> static std::string format(const std::string& fmt, Args... args)
   {
-    constexpr int capacity = 512;
-    std::string buff(capacity, '\0');
-
+    std::string buff;
     int ret = snprintf(&buff[0], buff.capacity(), fmt.c_str(), args...);
-    if (ret > capacity) {
-      buff.reserve(ret);
+    if (ret >= capacity) {
+      buff.reserve(ret+1);
       ret = snprintf(&buff[0], buff.capacity(), fmt.c_str(), args...);
     }
     else if (ret < 0) {
