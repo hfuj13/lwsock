@@ -297,7 +297,7 @@ public:
   }
   template<typename... Args> static std::string format(const std::string& fmt, Args... args)
   {
-    std::string buff;
+    std::string buff; // Used only for dynamic area control.
     int ret = snprintf(&buff[0], buff.capacity(), fmt.c_str(), args...);
     if (ret >= buff.capacity()) {
       buff.reserve(ret+1);
