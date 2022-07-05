@@ -8,5 +8,5 @@ using namespace lwsock;
 TEST(Version, version)
 {
   std::string ver = Version;
-  ASSERT_EQ("v1.3.3", ver);
+  ASSERT_EQ("v1.4.1", ver);
 }

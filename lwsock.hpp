@@ -299,7 +299,7 @@ public:
   {
     std::string buff;
     int ret = snprintf(&buff[0], buff.capacity(), fmt.c_str(), args...);
-    if (ret >= capacity) {
+    if (ret >= buff.capacity()) {
       buff.reserve(ret+1);
       ret = snprintf(&buff[0], buff.capacity(), fmt.c_str(), args...);
     }
