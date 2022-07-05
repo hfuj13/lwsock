@@ -1,22 +1,22 @@
 ## LWSOCK
 
-* lwsock is a Library of WebSocket (RFC6455) for C++.
-* L: a Library, WSOCK: WebSocket
-* This API is like traditional BSD Socket API for TCP client / server. (connect, bind, listen, accept, send, recv)
-* IPv6 ready
-* not depend on other libraries. (futuer maybe depend on openssl or libressl etc)
-* You must control about multiple IO, thread etc by yourself.
-* lwsock doesn't management status (CONNECTING, OPEN, CLOSING, CLOSED etc). You must do it yourself.
-* Document: https://github.com/hfuj13/lwsock/wiki
+* lwsock は C++ 用の WebSocket (RFC6455) ライブラリです。
+* L: ライブラリ、WSOCK: WebSocket を意味します。
+* このAPIは伝統的なTCPクライアント/サーバー用のBSD Socket APIに似ています。(connect, bind, listen, accept, send, recv)
+* IPv6 対応。
+* 他のライブラリに依存していません。(futuer maybe depend on openssl or libressl etc)
+* スレッド等の多重化IOは利用者自身で制御する必要があります。
+* lwsockは状態管理をしません(CONNECTING, OPEN, CLOSING, CLOSED等)。必要なら利用者自身で管理して下さい。
+* ドキュメント: https://github.com/hfuj13/lwsock/wiki
 
-## Require
+## 要件:
 
-* C++14 or later
+* C++14以降
 * Linux
-* C++ Exception (-fexceptions etc.)
-* Little Endian
+* C++例外機能 (-fexceptions等)
+* リトルエンディアン
 
-## Tester building
+## テスターのビルド
 
 ```
 $ tar xf googletest-release-1.8.0.tar.gz
@@ -29,20 +29,20 @@ $ cmake ../
 $ make
 ```
 
-## NOTE
+## 注
 
-* not supported TLS yet.
-* Default supported opening handshake headers are Host, Upgrade, Connection, Sec-WebSocket-Key and Sec-WebSocket-Accept.
-* If you want to use other heaers, then use the following APIs:
+* TLSはまだサポートしていません。
+* デフォルトでサポートしているオープニングハンドシェイクヘッダーは Host, Upgrade, Connection, Sec-WebSocket-Key, Sec-WebSocket-Accept です。
+* もし他のヘッダーを使いたい場合は次のAPIを使って下さい:
   * send_req(const headers_t&)
   * send_res(const headers_t&)
   * send_req_manually(const handshake_t&)
   * send_res_manually(const handshake_t&)
-* If you use lwsock on Android NDK, then you should set -fexceptions and unset -Wexit-time-destructors Compiler options.
+* もしAndroid NDKでlwsockを使う場合は、-fexceptions コンパイラオプションをセットし -Wexit-time-destructors をアンセットしたほうが良いです。
 
-## For example
+## 使用例
 
-### server side:
+### サーバーサイド:
 
 ```
   void worker(lwsock::WebSocket&& nws)
@@ -74,7 +74,7 @@ $ make
   }
 ```
 
-### client side:
+### クライアントサイド:
 
 ```
   lwsock::WebSocket c(lwsock::WebSocket::Mode::CLIENT);
@@ -90,9 +90,9 @@ $ make
 
 ## TODO
 
-* Readjust errors.
-* Organizing logs.
-* Organizing codes.
-* Revise sample.
-* Correspond to TLS.
-* Make files separable.
+* エラー値の再調整
+* ログの最適化
+* コードの整理
+* サンプルの改訂
+* TLSサポート
+* ソースファイルの分割
