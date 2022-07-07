@@ -66,8 +66,8 @@ $ make
   std::vector<thread> th_set;
   for (int i = 0; i < 3; ++i) {
     lwsock::WebSocket nws = s.accept(); // blocking, return new WebSocket object
-    auto th = std::thread(worker, move(nws));
-    th_set.push_back(move(th));
+    auto th = std::thread(worker, std::move(nws));
+    th_set.push_back(std::move(th));
   }
   for (auto& th : th_set) {
     th.join();
