@@ -1039,7 +1039,7 @@ inline bool is_numerichost(const std::string& host)
 /// @param [in] uri: uri
 /// @retval pair::first: host_port <br>
 ///         pair::second: path_query
-/// @exception CRegexException, LwsockExrepss
+/// @exception CRegexException, LwsockException
 inline std::pair<std::string, std::string> split_hostport_pathquery(const std::string& uri)
 {
   DECLARE_CALLEE(callee, __func__, "(uri=\"" << uri << "\")");
