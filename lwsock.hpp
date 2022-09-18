@@ -55,21 +55,12 @@
 
 namespace lwsock {
 
-// var string: variable name
-// func_name string: function name
-// param string: parameter
-#define DECLARE_CALLEE(var, func_name, param) \
-std::ostringstream var; \
-{ var << func_name << param; }
-
-
-constexpr char Version[] = "v1.4.1";
-constexpr char B64chs[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-constexpr char GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-constexpr char EOL[] = "\r\n"; // end of line
+constexpr char Version[] = "v1.5.1";
 constexpr uint8_t Magic[] = {49, 49, 104, 102, 117, 106, 49, 51};
 
-/// WebSocket(RFC6455) Opcode enum
+// [lwsock private]
+/// \brief WebSocket(RFC6455) Opcode enum
+///
 enum class Opcode {
   CONTINUE = 0x0,
   TEXT = 0x1,
@@ -79,10 +70,11 @@ enum class Opcode {
   PONG = 0xa,
 };
 
-/// @brief lwsock error code
+
+/// \brief LWSOCK error codes
 ///
-/// negative value. (positive value is system error)
-/// @todo readjust errorcode
+/// \note Negative value. lwsock-specific error code.
+///
 enum class LwsockErrc: int32_t {
   NO_ERROR = 0,
   COULD_NOT_OPEN_AVAILABLE_SOCKET = -102,
@@ -96,64 +88,60 @@ enum class LwsockErrc: int32_t {
   TIMED_OUT = -111,
 };
 
+/// \brief Log level
+///
 enum class LogLevel: int32_t {
-#if 0
-  DEBUG = 1,
+  UNDER_LVL = 0,
+  VERBOSE,
   DEBUG,
   INFO,
   WARNING,
   ERROR,
-#else
-    UNDER_LVL = 0,
-    VERBOSE,
-    DEBUG,
-    INFO,
-    WARNING,
-    ERROR,
-    SILENT,
-    OVER_LVL
-#endif
+  SILENT,
+  OVER_LVL
 };
 
-/// @brief get emum class value as int
+// [lwsockprivate]
+/// \brief Get emum class value as int
 ///
-/// @param [in] value
-/// @retval int value
+/// \param [in] value: Enum class value
+/// \retval int value
+///
 template<typename T> auto as_int(const T value) -> typename std::underlying_type<T>::type
 {
   return static_cast<typename std::underlying_type<T>::type>(value);
 }
 
-/// @brief transform the adress family to string
+// [lwsockprivate]
+/// \brief auto resize sprintf
 ///
-/// @pram [in] af: AF_INET, AF_INET6, AF_UNSPEC
-/// @retval string
-inline std::string af2str(int af)
+/// \param [in] fmt: format string. so-called printf format
+/// \param [in] args: Earch values
+/// \retval formatted string
+///
+template<typename... Args> std::string sprintf(const std::string& fmt, Args... args)
 {
-  std::string str;
-  switch (af) {
-  case AF_INET:
-    str = "AF_INET";
-    break;
-  case AF_INET6:
-    str = "AF_INET6";
-    break;
-  case AF_UNSPEC:
-    str = "AF_UNSPEC";
-    break;
-  default:
-    str = std::to_string(af);
-    break;
+  std::string buff; // Used only for dynamic area control.
+  int ret = snprintf(&buff[0], buff.capacity(), fmt.c_str(), args...);
+  if (ret >= buff.capacity()) {
+    buff.reserve(ret+1);
+    ret = snprintf(&buff[0], buff.capacity(), fmt.c_str(), args...);
   }
+  else if (ret < 0) {
+    abort();
+  }
+  std::string str(buff.c_str());
   return str;
 }
 
-/// @brief get now timestamp. UTC only yet
+// [lwsockprivate]
+/// \brief Get now timestamp string. UTC only yet
 ///
-/// @param [in] parenthesis: ture: output with '[' and ']' <br>
-//      false : output with raw
-/// @retval string transformed timestamp (e.g. [2016-12-11T13:24:13.058] or 2016-12-11T13:24:13.058 etc.). the output format is like the ISO8601 (that is it include milliseconds)
-/// @todo correspond TIME ZONE
+/// \param [in] parenthesis: ture: output with '[' and ']' <br>
+///    false : Output with raw
+/// \retval Transformed timestamp string. e.g. [2016-12-11T13:24:13.058] or 2016-12-11T13:24:13.058 etc.). the output format is like the ISO8601 (It includes milliseconds)
+/// Todo correspond TIME ZONE
+///
 inline std::string now_timestamp(bool parenthesis)
 {
   std::chrono::time_point<std::chrono::system_clock> tp = std::chrono::system_clock::now();
@@ -170,45 +158,35 @@ inline std::string now_timestamp(bool parenthesis)
   tzset();
   gmtime_r(&tt, &stm);
 
-  std::ostringstream oss;
-
-  oss << (stm.tm_year+1900) << '-'
-      << std::setw(2) << std::setfill('0') << (stm.tm_mon+1) << '-'
-      << std::setw(2) << std::setfill('0') << stm.tm_mday
-      << 'T'
-      << std::setw(2) << std::setfill('0') << stm.tm_hour
-      << ':'
-      << std::setw(2) << std::setfill('0') << stm.tm_min
-      << ':'
-      << std::setw(2) << std::setfill('0') << stm.tm_sec
-      << '.' << std::setw(3) << std::setfill('0') << msec
-      //<< std::setw(3) << std::setfill('0') << nsec
-      ;
-
+  std::string timestamp_str = lwsock::sprintf("%04d%02d%02dT%02d:%02d%02d.%03u",
+           stm.tm_year+1900, stm.tm_mon+1, stm.tm_mday, stm.tm_hour, stm.tm_min, stm.tm_sec, msec);
   std::string str;
   if (parenthesis) {
-    str += "[" + oss.str() + "]";
+    str += "[" + timestamp_str + "]";
   }
   else {
-    str += oss.str();
+    str += timestamp_str;
   }
-
   return str;
 }
 
-/// @brief get timestamp by cloed parenthesis
+// [lwsockprivate]
+/// \brief get now timestamp string by cloed parenthesis
 ///
-/// @retval string transformed timestamp (e.g. [2016-12-11T13:24:13.058])
+/// \retval Transformed timestamp string. (e.g. [2016-12-11T13:24:13.058])
+///
 inline std::string now_timestamp()
 {
   return now_timestamp(true);
 }
 
-/// @brief trim specified characters
+// [lwsockprivate]
+/// \brief Trim specified characters
 ///
-/// @param [in] str: string
-/// @param [in] charset: character set (specified by a string) what you want to delete
-/// @retval trimed string
+/// \param [in] str: Target string
+/// \param [in] charset: Character set (specified by a string) what you want to delete. e.g. "\n\t"
+/// \retval Trimed string
+///
 inline std::string trim(const std::string& str, const std::string& charset)
 {
   std::string::size_type p0 = str.find_first_not_of(charset);
@@ -221,230 +199,357 @@ inline std::string trim(const std::string& str, const std::string& charset)
   return result;
 }
 
-/// @brief trim white spaces
+// [lwsockprivate]
+/// \brief Trim white spaces
 ///
-/// @param [in] str: string
-/// @retval trimed string
+/// \param [in] str: Target string
+/// \retval Trimed string
+///
 inline std::string trim(const std::string& str)
 {
   return trim(str, " \t\v\r\n");
 }
 
-/// @brief transform the string to the lowercase string
+
+// [lwsockprivate]
+/// \brief A Log class
 ///
-/// @param [in] str: string
-/// @retval lower case string
-inline std::string str2lower(const std::string& str)
-{
-  std::string result;
-  std::transform(std::begin(str), std::end(str), std::back_inserter(result), ::tolower);
-  return result;
-}
-
-// a logger
-class alog final {
+class ALog final {
 public:
-  class scoped final {
-  public:
-    scoped() = delete;
-    scoped(const scoped&) = default;
-    scoped(scoped&&) = default;
 
-    scoped(const std::string& str)
-    : scoped(LogLevel::DEBUG, str) {}
-    scoped(LogLevel loglevel, const std::string& str)
+  // [lwsockprivate]
+  /// \brief Tracer class
+  ///
+  /// note It outputs ">>>>" at the beginning when entering, and outputs "<<<<" at the beginning when exiting.
+  ///
+  class Tracer final {
+  public:
+
+    // [lwsockprivate]
+    /// \brief Constructor
+    ///
+    Tracer() = delete;
+    Tracer(const Tracer&) = delete;
+    Tracer(Tracer&&) = default;
+    Tracer(const std::string& str)
+    : Tracer(LogLevel::DEBUG, str)
+    {}
+    Tracer(LogLevel loglevel, const std::string& str)
     : loglevel_(loglevel), oss_(str)
     {
-      log_(loglevel_) << "[[[[ " << oss_.str() << std::endl;
+      log_(loglevel_) << ">>>> " << oss_.str() << std::endl;
     }
-    ~scoped()
+
+    // [lwsockprivate]
+    /// \brief Destructor
+    ///
+    ~Tracer()
     {
-      log_(loglevel_) << "]]]] " << oss_.str() << std::endl;
+      log_(loglevel_) << "<<<< " << oss_.str() << std::endl;
     }
+
+    // [lwsockprivate]
+    /// \brief operator=
+    ///
+    Tracer& operator=(const Tracer&) = delete;
+    Tracer& operator=(Tracer&&) = default;
+
+    template<typename T> friend std::ostream& operator<<(Tracer& tracer, const T& rhs);
+
+    // [lwsockprivate]
+    /// \brief Get a log string
+    ///
+    /// \retval A log string
+    ///
     std::string str()
     {
       return oss_.str();
     }
-    scoped& clear()
+
+    // [lwsockprivate]
+    /// \brief Clear a log string
+    ///
+    /// \retval Reference of *this
+    ///
+    Tracer& clear()
     {
       oss_.str("");
       return *this;
     }
-    template<typename T> friend std::ostream& operator<<(scoped& slog, const T& rhs);
 
   private:
-    alog& log_ = alog::get_instance();
+    ALog& log_ = ALog::get_instance();
     LogLevel loglevel_ = LogLevel::DEBUG;
     std::ostringstream oss_;
   };
 
-  static alog& get_instance()
+  // [lwsockprivate]
+  /// \brief operator==
+  ///
+  /// \param [in] rhs: Alog instance
+  /// \retval Boolean value
+  ///
+  bool operator==(const ALog& rhs) const
+  {
+    return &rhs == this || (rhs.level_ == level_ && rhs.ost_ == ost_);
+  }
+
+  // [lwsockprivate]
+  /// \brief operator!=
+  ///
+  /// \param [in] rhs: Alog instance
+  /// \retval Boolean value
+  ///
+  bool operator!=(const ALog& rhs) const
+  {
+    return (rhs.level_ != level_ || rhs.ost_ != ost_);
+  }
+
+  static ALog& get_instance()
   {
     return get_instance(nullptr);
   }
-  static alog& get_instance(std::ostream& ost)
+  static ALog& get_instance(std::ostream& ost)
   {
     return get_instance(&ost);
   }
 
-  bool operator==(const alog& rhs) const
-  {
-    return &rhs == this || (rhs.level_ == level_ && rhs.ost_ == ost_);
-  }
-  bool operator!=(const alog& rhs) const
-  {
-    return (rhs.level_ != level_ || rhs.ost_ != ost_);
-  }
-  template<typename... Args> static std::string format(const std::string& fmt, Args... args)
-  {
-    std::string buff; // Used only for dynamic area control.
-    int ret = snprintf(&buff[0], buff.capacity(), fmt.c_str(), args...);
-    if (ret >= buff.capacity()) {
-      buff.reserve(ret+1);
-      ret = snprintf(&buff[0], buff.capacity(), fmt.c_str(), args...);
-    }
-    else if (ret < 0) {
-      abort();
-    }
-    std::string str(buff.c_str());
-    return str;
-
-  }
-
-  // for verbose
-  std::ostream& v()
+  // [lwsockprivate]
+  /// \brief Output a verbose level log
+  ///
+  /// Output a log message when the log level is VERBOSE or lower.
+  ///
+  /// \retval
+  ///
+  std::ostream& verbose()
   {
     return (*this)(LogLevel::VERBOSE) << "[V]";
   }
-  template<typename... Args> std::ostream& v(const std::string& fmt, Args... args)
+  // [lwsockprivate]
+  /// \brief
+  ///
+  ///
+  ///
+  /// \param [in] fmt: Format string. printf() like. e.g. "%s %d\n"
+  /// \retval
+  ///
+  template<typename... Args> std::ostream& verbose(const std::string& fmt, Args... args)
   {
-    return v() << format(fmt, args...) << std::flush;
+    return verbose() << lwsock::sprintf(fmt, args...) << std::flush;
   }
 
-  // for debug
-  std::ostream& d()
+  /// Output a log message when the log level setting is DEBUG or lower.
+  // [lwsockprivate]
+  /// \brief
+  ///
+  ///
+  ///
+  /// \retval
+  ///
+  std::ostream& debug()
   {
     return (*this)(LogLevel::DEBUG) << "[D]";
   }
-  template<typename... Args> std::ostream& d(const std::string& fmt, Args... args)
+  // [lwsockprivate]
+  /// \brief
+  ///
+  ///
+  ///
+  /// \param [in] fmt: Format string. printf() like. e.g. "%s %d\n"
+  /// \retval
+  ///
+  template<typename... Args> std::ostream& debug(const std::string& fmt, Args... args)
   {
-    return d() << format(fmt, args...) << std::flush;
+    return debug() << lwsock::sprintf(fmt, args...) << std::flush;
   }
 
-  // for info
-  std::ostream& i()
+  /// Output a log message when the log level setting is INFO or lower.
+  // [lwsockprivate]
+  /// \brief
+  ///
+  ///
+  ///
+  /// \retval
+  ///
+  std::ostream& info()
   {
     return (*this)(LogLevel::INFO) << "[I]";
   }
-  template<typename... Args> std::ostream& i(const std::string& fmt, Args... args)
+  // [lwsockprivate]
+  /// \brief
+  ///
+  ///
+  ///
+  /// \param [in] fmt: Format string. printf() like. e.g. "%s %d\n"
+  /// \retval
+  ///
+  template<typename... Args> std::ostream& info(const std::string& fmt, Args... args)
   {
-    return i() << format(fmt, args...) << std::flush;
+    return info() << lwsock::sprintf(fmt, args...) << std::flush;
   }
 
-  // for warning
-  std::ostream& w()
+  /// Output a log message when the log level setting is WARNING or lower.
+  // [lwsockprivate]
+  /// \brief
+  ///
+  ///
+  ///
+  /// \retval
+  ///
+  std::ostream& warning()
   {
     return (*this)(LogLevel::WARNING) << "[W]";
   }
-  template<typename... Args> std::ostream& w(const std::string& fmt, Args... args)
+  // [lwsockprivate]
+  /// \brief
+  ///
+  ///
+  ///
+  /// \param [in] fmt: Format string. printf() like. e.g. "%s %d\n"
+  /// \retval
+  ///
+  template<typename... Args> std::ostream& warning(const std::string& fmt, Args... args)
   {
-    return w() << format(fmt, args...) << std::flush;
+    return warning() << lwsock::sprintf(fmt, args...) << std::flush;
   }
 
-  // for error
-  std::ostream& e()
+  /// Output a log message when the log level setting is ERROR or lower.
+  // [lwsockprivate]
+  /// \brief
+  ///
+  ///
+  ///
+  /// \retval
+  ///
+  std::ostream& error()
   {
     return (*this)(LogLevel::ERROR) << "[E]";
   }
-  template<typename... Args> std::ostream& e(const std::string& fmt, Args... args)
+  // [lwsockprivate]
+  /// \brief
+  ///
+  ///
+  ///
+  /// \param [in] fmt: Format string. printf() like. e.g. "%s %d\n"
+  /// \retval
+  ///
+  template<typename... Args> std::ostream& error(const std::string& fmt, Args... args)
   {
-    return e() << format(fmt, args...) << std::flush;
+    return error() << lwsock::sprintf(fmt, args...) << std::flush;
   }
 
-  // ログレベル設定が何であっても強制的に出力する
+  // Force output no matter what the log level setting is.
+  // [lwsockprivate]
+  /// \brief
+  ///
+  ///
+  ///
+  /// \retval
+  ///
   std::ostream& force()
   {
     return (*this)();
   }
+  // [lwsockprivate]
+  /// \brief
+  ///
+  ///
+  ///
+  /// \param [in] fmt: Format string. printf() like. e.g. "%s %d\n"
+  /// \retval
+  ///
   template<typename... Args> std::ostream& force(const std::string& fmt, Args... args)
   {
-    return force() << format(fmt, args...) << std::flush;
+    return force() << lwsock::sprintf(fmt, args...) << std::flush;
   }
 
-  template<typename T> friend std::ostream& operator<<(alog& log, const T& rhs);
+  template<typename T> friend std::ostream& operator<<(ALog& log, const T& rhs);
 
-  alog& level(LogLevel lvl)
+  /// Set log level
+  ALog& level(LogLevel lvl)
   {
-    assert(LogLevel::UNDER_LVL < lvl && lvl < LogLevel::OVER_LVL);
-    if (lvl <= LogLevel::UNDER_LVL || LogLevel::OVER_LVL <= lvl) {
-      abort();
-    }
-
+    assert(LogLevel::UNDER_LVL <= lvl && lvl <= LogLevel::OVER_LVL);
     level_ = lvl;
     return *this;
   }
+
+  /// Get log level
   LogLevel level()
   {
     return level_;
   }
 
-  alog& ostream(std::ostream& ost)
+  /// Set ostream reference
+  ALog& ostream(std::ostream& ost)
   {
     ost_ = &ost;
     return *this;
   }
 
 private:
-  alog() = default;
-  alog& operator=(const alog&) = delete;
+  ALog() = default;
+  ALog& operator=(const ALog&) = delete;
 
+  /// Output the timestamp and the thread id
   std::ostream& output()
   {
     return (*ost_) << now_timestamp() << "[thd:" << std::this_thread::get_id() << "] ";
   }
 
+  /// Output the timestamp and the thread id
   std::ostream& operator()()
   {
     return output();
   }
+
+  /// Output a log message when lvl grater equal the log setting.
   std::ostream& operator()(LogLevel lvl)
   {
     return lvl >= level_ ? output() : null_ost_;
   }
 
-  static alog& get_instance(std::ostream* ost)
+  static ALog& get_instance(std::ostream* ost)
   {
-    static alog log;
+    static ALog log;
     if (ost != nullptr) {
       log.ost_ = ost;
     }
     return log;
   }
 
-  std::ostream null_ost_{nullptr}; // /dev/null like ostream
+  std::ostream null_ost_{nullptr}; // that is /dev/null like
   LogLevel level_ = LogLevel::SILENT;
   std::ostream* ost_ = &null_ost_;
 };
 
-template<typename T> std::ostream& operator<<(alog& log, const T& rhs)
+// [lwsockprivate]
+template<typename T> std::ostream& operator<<(ALog& log, const T& rhs)
 {
   return (*log.ost_) << rhs;
 }
 
-template<typename T> std::ostream& operator<<(alog::scoped& slog, const T& rhs)
+// [lwsockprivate]
+template<typename T> std::ostream& operator<<(ALog::Tracer& tracer, const T& rhs)
 {
-  return slog.oss_ << rhs;
+  return tracer.oss_ << rhs;
 }
 
-/// @brief  Error class
+/// \brief Error class
 ///
-/// this class contains errno(3), getaddrinfo(3)'s error, regcom(3)'s error or lwsock Errcode.
+/// Manage the error code, line number and a error message.
+///
 class Error final {
 public:
   Error() = delete;
   Error(const Error&) = default;
   Error(Error&&) = default;
-  Error(int errcode, uint32_t line, const std::string& what_arg)
+
+  /// \brief Constructer
+  ///
+  /// \param [in] errcode: Error code
+  /// \param [in] line: Line number
+  /// \param [in] what_arg: Error message
+  Error(int errcode, int line, const std::string& what_arg)
   : errcode_(errcode), line_(line)
   {
     std::ostringstream oss;
@@ -456,67 +561,81 @@ public:
       oss << "errcode=" << errcode_ << ". " << what_arg;
       what_ = oss.str();
     }
-    alog& log = alog::get_instance();
-    log.e() << what_ << std::endl;
+    ALog& log = ALog::get_instance();
+    log.error() << what_ << std::endl;
   }
-  Error(int errcode, uint32_t line)
+
+  explicit Error(int errcode, int line)
   : Error(errcode, line, "")
-  { }
+  {}
   Error(int errcode, const std::string& what_arg)
   : Error(errcode, 0, what_arg)
-  { }
+  {}
   explicit Error(int errcode)
   : Error(errcode, 0, "")
-  { }
+  {}
 
   ~Error() = default;
 
-  /// @brief get error code
+  /// \brief Get error code
   ///
-  /// @retval error code. errno(3), getaddrinfo(3), regcomp(3), lwsock Errcode.
+  /// \retval Error code. errno(3), getaddrinfo(3), regcomp(3), lwsock Errcode.
   int code()
   {
     return errcode_;
   }
 
+  /// \brief Set the prefix to be attached to the cause message.
+  ///
   void prefix(const std::string& prefix)
   {
     what_ = prefix + what_;
   }
 
-  /// @brief get reason string
+  /// \brief Get a reason message.
   ///
-  /// @retval reason string
+  /// \retval Const pointer to the reason message.
   const char* what() const
   {
     return what_.c_str();
   }
+
 private:
   int errcode_ = 0;
-  uint32_t line_ = 0; // the line when the error occurred
-  std::string what_;
+  int line_ = 0; // The line number when the error occurred
+  std::string what_; // The reason message
 };
 
+/// \brief An exception class for CRegex
+///
 class CRegexException final: public std::exception {
 public:
   CRegexException() = delete;
   CRegexException(const CRegexException&) = default;
   CRegexException(CRegexException&&) = default;
-  explicit CRegexException(const Error& error)
+  CRegexException(const Error& error)
   : error_(error)
-  { }
+  {}
+  CRegexException(Error&& error)
+  : error_(error)
+  {}
+  CRegexException& operator=(const CRegexException&) = default;
+  CRegexException& operator=(CRegexException&&) = default;
 
   ~CRegexException() = default;
 
+  /// \brief Get a reason message.
+  ///
+  /// \retval Const pointer to the reason message.
   const char* what() const noexcept override
   {
     error_.prefix("CRegexException: ");
     return error_.what();
   }
 
-  /// @brief get exception code (error code etc.)
+  /// \brief Get A code number (error code etc.)
   ///
-  /// @retavl error code
+  /// \retavl A code number
   virtual int code()
   {
     return error_.code();
@@ -525,26 +644,36 @@ private:
   mutable Error error_;
 };
 
+/// \brief An exception class for getaddrinfo(3)
+///
 class GetaddrinfoException final: public std::exception {
 public:
   GetaddrinfoException() = delete;
   GetaddrinfoException(const GetaddrinfoException&) = default;
   GetaddrinfoException(GetaddrinfoException&&) = default;
-  explicit GetaddrinfoException(const Error& error)
+  GetaddrinfoException(const Error& error)
   : error_(error)
-  { }
+  {}
+  GetaddrinfoException(Error&& error)
+  : error_(error)
+  {}
+  GetaddrinfoException& operator=(const GetaddrinfoException&) = default;
+  GetaddrinfoException& operator=(GetaddrinfoException&&) = default;
 
   ~GetaddrinfoException() = default;
 
+  /// \brief Get a reason message.
+  ///
+  /// \retval Const pointer to the reason message.
   const char* what() const noexcept override
   {
     error_.prefix("GetaddrinfoException: ");
     return error_.what();
   }
 
-  /// @brief get exception code (error code etc.)
+  /// \brief Get A code number (error code etc.)
   ///
-  /// @retavl error code
+  /// \retavl A code number
   virtual int code()
   {
     return error_.code();
@@ -553,27 +682,36 @@ private:
   mutable Error error_;
 };
 
-/// @brief libray error exception class
+/// \brief An exception class for LWSOCK
+///
 class LwsockException final: public std::exception {
 public:
   LwsockException() = delete;
   LwsockException(const LwsockException&) = default;
   LwsockException(LwsockException&&) = default;
-  explicit LwsockException(const Error& error)
+  LwsockException(const Error& error)
   : error_(error)
-  { }
+  {}
+  LwsockException(Error&& error)
+  : error_(error)
+  {}
+  LwsockException& operator=(const LwsockException&) = default;
+  LwsockException& operator=(LwsockException&&) = default;
 
   ~LwsockException() = default;
 
+  /// \brief Get a reason message.
+  ///
+  /// \retval Const pointer to the reason message.
   const char* what() const noexcept override
   {
     error_.prefix("LwsockException: ");
     return error_.what();
   }
 
-  /// @brief get exception code (error code etc.)
+  /// \brief Get A code number (error code etc.)
   ///
-  /// @retavl error code
+  /// \retavl A code number
   virtual int code()
   {
     return error_.code();
@@ -582,28 +720,36 @@ private:
   mutable Error error_;
 };
 
-/// @brief system_error exception class. this is a wrapper class because i want to output logs.
+/// \brief An exception class for System error
 ///
 class SystemErrorException final: public std::exception {
 public:
   SystemErrorException() = delete;
   SystemErrorException(const SystemErrorException&) = default;
   SystemErrorException(SystemErrorException&&) = default;
-  explicit SystemErrorException(const Error& error)
+  SystemErrorException(const Error& error)
   : error_(error)
-  { }
+  {}
+  SystemErrorException(Error&& error)
+  : error_(error)
+  {}
+  SystemErrorException& operator=(const SystemErrorException&) = default;
+  SystemErrorException& operator=(SystemErrorException&&) = default;
 
   ~SystemErrorException() = default;
 
+  /// \brief Get a reason message.
+  ///
+  /// \retval Const pointer to the reason message.
   const char* what() const noexcept override
   {
     error_.prefix("SystemErrorException: ");
     return error_.what();
   }
 
-  /// @brief get exception code (error code etc.)
+  /// \brief Get A code number (error code etc.)
   ///
-  /// @retavl error code
+  /// \retavl A code number
   virtual int code()
   {
     return error_.code();
@@ -612,20 +758,26 @@ private:
   mutable Error error_;
 };
 
-/// @brief regex(3) wrapper
+/// \brief regex(3) wrapper class
 ///
-/// regex(3) wrapper class. because the std::regex, depending on the version of android it does not work properly.
+/// regex(3) wrapper class. Because std::regex may not work correctly on some android versions.
 class CRegex final {
 public:
   CRegex() = delete;
+  CRegex(const CRegex&) = default;
+  CRegex(CRegex&) = default;
+  CRegex& operator=(const CRegex&) = default;
+  CRegex& operator=(CRegex&) = default;
 
-  /// @exception CRegexException
+  /// \brief Constructor
+  ///
+  /// \exception CRegexException
   CRegex(const std::string& re, size_t nmatch)
   : nmatch_(nmatch)
   {
-    alog& log = alog::get_instance();
-    //log(LogLevel::DEBUG) << "CRegex(re=\"" << re << "\", nmatch=" << nmatch << ')' << std::endl;
-    log.d() << "CRegex(re=\"" << re << "\", nmatch=" << nmatch << ')' << std::endl;
+    assert(nmatch > 0);
+    ALog& log = ALog::get_instance();
+    log.debug() << "CRegex(re=\"" << re << "\", nmatch=" << nmatch << ')' << std::endl;
 
     int err = regcomp(&regbuff_, re.c_str(), REG_EXTENDED);
     if (err != 0) {
@@ -636,17 +788,21 @@ public:
       throw CRegexException(Error(err, oss.str()));
     }
   }
+
+  /// \brief Destructor
+  ///
   ~CRegex()
   {
     regfree(&regbuff_);
   }
 
-  /// @brief execute regex
+  /// \brief Execute regex
   ///
-  /// @param [in] src: string for regex
-  /// @retval matched string set. if empty then no matched
+  /// \param [in] src: Target string for regex
+  /// \retval Extracted strings vector. if empty then no matched
   std::vector<std::string> exec(const std::string& src)
   {
+    assert(nmatch_ > 0);
     std::vector<std::string> matched;
     std::vector<regmatch_t> match(nmatch_, {-1, -1});
     int err = regexec(&regbuff_, src.c_str(), match.size(), &match[0], 0);
@@ -669,99 +825,219 @@ private:
   size_t nmatch_ = 0;
 };
 
-/// @brief base64 encoder
+// [lwsockprivate]
+/// \brief Callee info class. (func name, params etc.)
 ///
-/// This referred the https://opensource.apple.com/source/QuickTimeStreamingServer/QuickTimeStreamingServer-452/CommonUtilitiesLib/base64.c
-/// @param [in] src_data: array or vector
-/// @param [in] src_data_sz: *src_data size. bytes
-/// @retval base64 encoded string
-inline std::string b64encode(const void* src_data, int src_data_sz)
+/// Callee info
+///
+class Callee final {
+public:
+  /// \brief Constructor
+  ///
+  /// \param [in] func_name: Function or Method name
+  ///
+  Callee(const std::string& func_name)
+  : func_name_(func_name)
+  {
+    oss_ << func_name << "()";
+  }
+  Callee(std::string&& func_name)
+  : func_name_(func_name)
+  {
+    oss_ << func_name << "()";
+  }
+
+  /// \brief Constructor
+  ///
+  Callee(const Callee&) = default;
+  Callee(Callee&&) = default;
+
+  /// \brief Constructor
+  ///
+  /// \param [in] func_name: Function or Method name
+  /// \param [in] params: Parameters
+  ///
+  Callee(const std::string& func_name, const std::string& params)
+  : func_name_(func_name)
+  , params_(params)
+  {
+    oss_ << func_name << params;
+  }
+  Callee(std::string&& func_name, std::string&& params)
+  : func_name_(func_name)
+  , params_(params)
+  {
+    oss_ << func_name << params;
+  }
+  template<typename... Args> Callee(const std::string& func_name, const std::string& fmt, Args... args)
+  : Callee(Callee::sprintf(func_name, fmt, args...))
+  {}
+//  template<typename... Args> Callee(const std::string& func_name, const std::string& fmt, Args... args)
+//  : Callee(Callee::sprintf(func_name, fmt, args...))
+//  {}
+
+  /// \brief Destructor
+  ///
+  ~Callee() = default;
+
+  /// \brief operator=
+  ///
+  Callee& operator=(const Callee&) = default;
+  Callee& operator=(Callee&&) = default;
+
+  static Callee sprintf(const std::string& func_name)
+  {
+    return Callee(func_name);
+  }
+
+  template<typename... Args> static Callee sprintf(const std::string& func_name, const std::string& fmt, Args... args)
+  {
+    std::string params = lwsock::sprintf(fmt, args...);
+    return Callee(func_name, params);
+  }
+
+  template<typename T> friend Callee& operator<<(Callee& callee, const T& rhs);
+
+  std::string str()
+  {
+    return oss_.str();
+  }
+
+private:
+  Callee() = default;
+
+  std::string func_name_;
+  std::string params_;
+  std::ostringstream oss_;
+
+};
+
+template<typename T> Callee& operator<<(Callee& callee, const T& rhs)
 {
-  assert(src_data_sz >= 0);
-  std::string dst;
-  const uint8_t* src = static_cast<const uint8_t*>(src_data);
-  int idx = 0;
-
-  for (; idx < src_data_sz - 2; idx += 3) {
-    dst += B64chs[(src[idx] >> 2) & 0x3F];
-    dst += B64chs[((src[idx] & 0x3) << 4) | ((src[idx + 1] & 0xF0) >> 4)];
-    dst += B64chs[((src[idx + 1] & 0xF) << 2) | ((src[idx + 2] & 0xC0) >> 6)];
-    dst += B64chs[src[idx + 2] & 0x3F];
-  }
-  if (idx < src_data_sz) {
-    dst += B64chs[(src[idx] >> 2) & 0x3F];
-    if (idx == (src_data_sz - 1)) {
-        dst += B64chs[((src[idx] & 0x3) << 4)];
-        dst += '=';
-    }
-    else {
-        dst += B64chs[((src[idx] & 0x3) << 4) | ((src[idx + 1] & 0xF0) >> 4)];
-        dst += B64chs[((src[idx + 1] & 0xF) << 2)];
-    }
-    dst += '=';
-  }
-
-  return dst;
+  callee.oss_ << rhs;
+  return callee;
 }
 
-/// @brief base64 decoder
+// [lwsockprivate]
+/// \brief Base64 class
 ///
-/// @param [in] src: base64 encoded string
-/// @retval base64 decoded data
-/// @exception LwsockException
-inline std::vector<uint8_t> b64decode(const std::string& src)
-{
-  DECLARE_CALLEE(callee, __func__, "(src=\"" << src << "\")");
-
-  if (src.size() % 4 != 0) {
-    int err = as_int(LwsockErrc::INVALID_PARAM);
-    std::ostringstream oss;
-    oss << callee.str() << " src.size()=" << src.size() << " is illegal.";
-    throw LwsockException(Error(err, oss.str()));
+class Base64 final {
+public:
+  Base64() = delete;
+  ~Base64() = delete;
+  static std::string prefix()
+  {
+    return "Base64::";
   }
-  constexpr int BLOCK_SZ = 4;
-  std::vector<uint8_t> dst;
-  for (size_t i = 0; i < src.size(); i += BLOCK_SZ) {
-    const char* ptr = &src[i];
-    std::array<uint8_t, 3> tmp;
-    uint8_t value[BLOCK_SZ] = {0};
-    int j = 0;
-    for (; j < BLOCK_SZ; ++j) {
-      if (std::isupper(ptr[j])) {
-        value[j] = ptr[j] - 65;
-      }
-      else if (std::islower(ptr[j])) {
-        value[j] = ptr[j] - 71;
-      }
-      else if (std::isdigit(ptr[j])) {
-        value[j] = ptr[j] + 4;
-      }
-      else if (ptr[j] == '+') {
-        value[j] = ptr[j] + 19;
-      }
-      else if (ptr[j] == '/') {
-        value[j] = ptr[j] + 16;
-      }
-      else if (ptr[j] == '=') {
-        break;
+
+  /// \brief Base64 encoder
+  ///
+  /// \param [in] src_data: Array or vector
+  /// \param [in] src_data_sz: *src_data size. Bytes
+  /// \retval Base64 encoded string
+  /// note This referred the https://opensource.apple.com/source/QuickTimeStreamingServer/QuickTimeStreamingServer-452/CommonUtilitiesLib/base64.c
+  ///
+  static std::string encode(const void* src_data, int src_data_sz)
+  {
+    assert(src_data_sz >= 0);
+    std::string dst;
+    const uint8_t* src = static_cast<const uint8_t*>(src_data);
+    int idx = 0;
+
+    for (; idx < src_data_sz - 2; idx += 3) {
+      dst += b64chs[(src[idx] >> 2) & 0x3F];
+      dst += b64chs[((src[idx] & 0x3) << 4) | ((src[idx + 1] & 0xF0) >> 4)];
+      dst += b64chs[((src[idx + 1] & 0xF) << 2) | ((src[idx + 2] & 0xC0) >> 6)];
+      dst += b64chs[src[idx + 2] & 0x3F];
+    }
+    if (idx < src_data_sz) {
+      dst += b64chs[(src[idx] >> 2) & 0x3F];
+      if (idx == (src_data_sz - 1)) {
+          dst += b64chs[((src[idx] & 0x3) << 4)];
+          dst += '=';
       }
       else {
-        int err = as_int(LwsockErrc::INVALID_PARAM);
-        std::ostringstream oss;
-        char ch = ptr[j];
-        oss << callee.str() << " illegal char='" << ch << '\'';
-        throw LwsockException(Error(err, oss.str()));
+          dst += b64chs[((src[idx] & 0x3) << 4) | ((src[idx + 1] & 0xF0) >> 4)];
+          dst += b64chs[((src[idx + 1] & 0xF) << 2)];
       }
+      dst += '=';
     }
-    tmp[0] = value[0] << 2 | value[1] >> 4;
-    tmp[1] = value[1] << 4 | value[2] >> 2;
-    tmp[2] = value[2] << 6 | value[3];
-    std::copy(std::begin(tmp), std::begin(tmp) + j - 1, std::back_inserter(dst));
-  }
-  return dst;
-}
 
-/// @brief sha1 class
+    return dst;
+  }
+  static std::string encode(const std::vector<uint8_t>& src_data)
+  {
+    std::string dst = encode(&src_data[0], src_data.size());
+    return dst;
+  }
+  template<std::size_t N> static std::string encode(const std::array<uint8_t, N>& src_data)
+  {
+    std::string dst = encode(&src_data[0], N);
+    return dst;
+  }
+
+  /// \brief Base64 decoder
+  ///
+  /// \param [in] src: Base64 encoded string
+  /// \retval Base64 decoded data
+  /// \exception LwsockException
+  static std::vector<uint8_t> decode(const std::string& src)
+  {
+    Callee callee(prefix() + __func__, "(src=\"%s\")", src.c_str());
+
+    if (src.size() % 4 != 0) {
+      int err = as_int(LwsockErrc::INVALID_PARAM);
+      std::ostringstream oss;
+      oss << callee.str() << " src.size()=" << src.size() << " is illegal.";
+      throw LwsockException(Error(err, oss.str()));
+    }
+    constexpr int BLOCK_SZ = 4;
+    std::vector<uint8_t> dst;
+    for (size_t i = 0; i < src.size(); i += BLOCK_SZ) {
+      const char* ptr = &src[i];
+      std::array<uint8_t, 3> tmp;
+      uint8_t value[BLOCK_SZ] = {0};
+      int j = 0;
+      for (; j < BLOCK_SZ; ++j) {
+        if (std::isupper(ptr[j])) {
+          value[j] = ptr[j] - 65;
+        }
+        else if (std::islower(ptr[j])) {
+          value[j] = ptr[j] - 71;
+        }
+        else if (std::isdigit(ptr[j])) {
+          value[j] = ptr[j] + 4;
+        }
+        else if (ptr[j] == '+') {
+          value[j] = ptr[j] + 19;
+        }
+        else if (ptr[j] == '/') {
+          value[j] = ptr[j] + 16;
+        }
+        else if (ptr[j] == '=') {
+          break;
+        }
+        else {
+          int err = as_int(LwsockErrc::INVALID_PARAM);
+          std::ostringstream oss;
+          char ch = ptr[j];
+          oss << callee.str() << " illegal char='" << ch << '\'';
+          throw LwsockException(Error(err, oss.str()));
+        }
+      }
+      tmp[0] = value[0] << 2 | value[1] >> 4;
+      tmp[1] = value[1] << 4 | value[2] >> 2;
+      tmp[2] = value[2] << 6 | value[3];
+      std::copy(std::begin(tmp), std::begin(tmp) + j - 1, std::back_inserter(dst));
+    }
+    return dst;
+  }
+
+private:
+  static constexpr char b64chs[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+};
+
+/// \brief Sha1 class
 ///
 /// This referred the RFC3174 Section 7.
 class Sha1 final {
@@ -791,17 +1067,16 @@ public:
     }
     Context_t(const Context_t&) = default;
     Context_t(Context_t&&) = default;
-
-    ~Context_t() = default;
-
     Context_t& operator=(const Context_t&) = default;
     Context_t& operator=(Context_t&&) = default;
 
-    uint32_t Intermediate_Hash[SHA1_HASH_SIZE / 4]; /* Message Digest  */
+    ~Context_t() = default;
+
+    uint32_t Intermediate_Hash[SHA1_HASH_SIZE / 4] = {0}; /* Message Digest  */
     uint32_t Length_Low = 0;  /* Message length in bits */
     uint32_t Length_High = 0; /* Message length in bits */
     int_least16_t Message_Block_Index = 0;
-    uint8_t Message_Block[MESSAGE_BLOCK_SIZE]; /* 512-bit message blocks */
+    uint8_t Message_Block[MESSAGE_BLOCK_SIZE] = {0}; /* 512-bit message blocks */
   };
 
   static int32_t Input(Context_t& dst, const void* message_array, int length)
@@ -851,6 +1126,26 @@ public:
 
     return 0;
   }
+#if 0
+  static int32_t Result(std::array<uint8_t, SHA1_HASH_SIZE>& message_digest, const Context_t& context)
+  {
+    Context_t ctx = SHA1PadMessage(context);
+    for (int i = 0; i < MESSAGE_BLOCK_SIZE; ++i) {
+      /* message may be sensitive, clear it out */
+      ctx.Message_Block[i] = 0;
+    }
+
+    // and clear length
+    ctx.Length_Low = 0;
+    ctx.Length_High = 0;
+
+    for (size_t i = 0; i < sz; ++i) {
+      Message_Digest[i] = ctx.Intermediate_Hash[i>>2] >> 8 * ( 3 - ( i & 0x03 ) );
+    }
+
+    return 0;
+  }
+#endif
 
 private:
   // SHA1ProcessMessageBlock
@@ -1006,47 +1301,37 @@ private:
   }
 };
 
-/// @brief check it is numerichost
+/// \brief Check it is numerichost
 ///
-/// @param [in] host: host
-/// @retval true it is ipaddress (numeric host)
-/// @retval false it is hostname (e.g. FQDN)
-/// @exception CRegexException
+/// \param [in] host: Host
+/// \retval true it is ipaddress (numeric host)
+/// \retval false it is hostname (e.g. FQDN)
+/// \exception CRegexException
 inline bool is_numerichost(const std::string& host)
 {
   std::string trimed_host(trim(host, "[]"));
-#if 0
-//  struct addrinfo hints = {0};
-//  struct addrinfo* res0 = nullptr;
-//  hints.ai_family = AF_UNSPEC;
-//  hints.ai_socktype = SOCK_STREAM;
-//  hints.ai_flags = AI_NUMERICHOST;
-//  int ret = ::getaddrinfo(trimed_host.c_str(), "80", &hints, &res0);
-//  freeaddrinfo(res0);
-//  return ret == 0;
-#else
   uint8_t tmp[sizeof(struct in6_addr)] = {0};
   int ret = inet_pton(AF_INET, trimed_host.c_str(), tmp);
   if (ret != 1) {
     ret = inet_pton(AF_INET6, trimed_host.c_str(), tmp);
   }
   return ret == 1;
-#endif
 }
 
-/// @brief split into host_port part and path_query part
+/// \brief Split into host_port part and path_query part
 ///
-/// @param [in] uri: uri
-/// @retval pair::first: host_port <br>
+/// \param [in] uri: Uri
+/// \retval pair::first: host_port <br>
 ///         pair::second: path_query
-/// @exception CRegexException, LwsockException
+/// \exception CRegexException
+/// \exception LwsockException
 inline std::pair<std::string, std::string> split_hostport_pathquery(const std::string& uri)
 {
-  DECLARE_CALLEE(callee, __func__, "(uri=\"" << uri << "\")");
-  alog::scoped slog(LogLevel::DEBUG, callee.str());
+  Callee callee(__func__, "(uri=\"%s\")", uri.c_str());
+  ALog::Tracer tracer(LogLevel::DEBUG, callee.str());
 
   std::string re = R"(^ws://([][0-9A-Za-z\.:\-]+)(/.*)?)";
-  size_t nmatch = 4;
+  size_t nmatch = 3+1;
 
   std::pair<std::string, std::string> hostport_pathquery;
 
@@ -1069,28 +1354,29 @@ inline std::pair<std::string, std::string> split_hostport_pathquery(const std::s
     break;
   }
 
-  alog& log = alog::get_instance();
-  log.d() << "    hostport=\"" << hostport_pathquery.first << "\"\n";
-  log.d() << "    pathquery=\"" << hostport_pathquery.second << '\"'<< std::endl;
+  ALog& log = ALog::get_instance();
+  log.debug() << "    hostport=\"" << hostport_pathquery.first << "\"\n";
+  log.debug() << "    pathquery=\"" << hostport_pathquery.second << '\"'<< std::endl;
 
-  slog.clear() << __func__ << "(...)";
+  tracer.clear() << __func__ << "(...)";
 
   return hostport_pathquery;
 }
 
-/// @brief split into path part and query part
+/// \brief Split into path part and query part
 ///
-/// @param [in] path_query: path and query string. (e.g. /aaa/bbb/ccc?i=1&j=2)
-/// @retval pair::first: path <br>
-///         pair::second: query
-/// @exception CRegexException, LwsockExrepss
+/// \param [in] path_query: Path and query string. (e.g. /aaa/bbb/ccc?i=1&j=2)
+/// \retval pair::first: Path <br>
+///         pair::second: Query
+/// \exception CRegexException
+/// \exception LwsockException
 inline std::pair<std::string, std::string> split_path_query(const std::string& path_query_str)
 {
-  DECLARE_CALLEE(callee, __func__, "(path_query_str=\"" << path_query_str << "\")");
-  alog::scoped slog(LogLevel::DEBUG, callee.str());
+  Callee callee(__func__, "(path_query_str=\"%s\")", path_query_str.c_str());
+  ALog::Tracer tracer(LogLevel::DEBUG, callee.str());
 
   std::string re = R"((/?[^? ]*)(\?[^ ]*)?)";
-  size_t nmatch = 4;
+  size_t nmatch = 3+1;
 
   std::pair<std::string, std::string> path_query;
   CRegex regex(re, nmatch);
@@ -1113,24 +1399,25 @@ inline std::pair<std::string, std::string> split_path_query(const std::string& p
     break;
   }
 
-  alog& log = alog::get_instance();
-  log.d() << "    path=\"" << path_query.first << "\"\n";
-  log.d() << "    query=\"" << path_query.second << '\"'<< std::endl;
+  ALog& log = ALog::get_instance();
+  log.debug() << "    path=\"" << path_query.first << "\"\n";
+  log.debug() << "    query=\"" << path_query.second << '\"'<< std::endl;
 
-  slog.clear() << __func__ << "(...)";
+  tracer.clear() << __func__ << "(...)";
   return path_query;
 }
 
-/// @brief split into host part and port number part.
+/// \brief Split into host part and port number part.
 ///
-/// @param [in] host_port_str: host and port string. (e.g. aaa.bbb.ccc:12000, 192.168.0.1:12000 etc.)
-/// @retval pair::first: host <br>
-///         pair::second: port number
-/// @exception CRegexException, LwsockExrepss
+/// \param [in] host_port_str: Host and port string. (e.g. aaa.bbb.ccc:12000, 192.168.0.1:12000 etc.)
+/// \retval pair::first: Host <br>
+///         pair::second: Port number
+/// \exception CRegexException
+/// \exception LwsockException
 inline std::pair<std::string, std::string> split_host_port(const std::string& host_port_str)
 {
-  DECLARE_CALLEE(callee, __func__, "(host_port_str=\"" << host_port_str << "\")");
-  alog::scoped slog(LogLevel::DEBUG, callee.str());
+  Callee callee(__func__, "(host_port_str=\"%s\")", host_port_str.c_str());
+  ALog::Tracer tracer(LogLevel::DEBUG, callee.str());
 
   std::pair<std::string, std::string> host_port;
 
@@ -1143,7 +1430,7 @@ inline std::pair<std::string, std::string> split_host_port(const std::string& ho
   }
   else if (host_port_str.find("[") != std::string::npos) { // maybe host part is numeric IPv6
     std::string re = R"((\[.*\])(:[0-9]{1,5})?)";
-    size_t nmatch = 4;
+    size_t nmatch = 3+1;
     CRegex regex(re, nmatch);
     std::vector<std::string> tmp = regex.exec(host_port_str);
     switch (tmp.size()) {
@@ -1190,11 +1477,11 @@ inline std::pair<std::string, std::string> split_host_port(const std::string& ho
     }
   }
 
-  alog& log = alog::get_instance();
-  log.d() << "    host=\"" << host_port.first << "\"\n";
-  log.d() << "    port=\"" << host_port.second << '\"'<< std::endl;
+  ALog& log = ALog::get_instance();
+  log.debug() << "    host=\"" << host_port.first << "\"\n";
+  log.debug() << "    port=\"" << host_port.second << '\"'<< std::endl;
 
-  slog.clear() << __func__ << "()";
+  tracer.clear() << __func__ << "()";
   return host_port;
 }
 
@@ -1219,7 +1506,8 @@ inline std::pair<std::string, std::string> split_host_port(const std::string& ho
 // |                     Payload Data continued ...                |
 // +---------------------------------------------------------------+
 
-/// @brief AHead class
+// [lwsockprivate]
+/// \brief AHead class
 ///
 /// A part of the Header class. fin,rsv1,rsv2,rsv3,opcode,payload_len
 /// Little Endian is assumed
@@ -1229,159 +1517,177 @@ public:
   AHead(const AHead&) = default;
   AHead(AHead&&) = default;
   explicit AHead(uint16_t data) // data is network byte order
-  : data_(data) { }
+  : data_(data) {}
 
   ~AHead() = default;
 
   AHead& operator=(const AHead&) = default;
   AHead& operator=(AHead&&) = default;
 
-  /// @brief get raw data
+  /// \brief Get raw data
   ///
-  /// @retval raw data
+  /// \retval Raw data
   uint16_t data()
   {
     return data_;
   }
 
-  /// @brief get the pointer for data
+  /// \brief Get the pointer for data
   ///
-  /// @retval the pointer for data
+  /// \retval The pointer for data
   uint16_t* data_ptr()
   {
     return &data_;
   }
 
-  /// @brief get size for data
+  /// \brief Get size of data
   ///
-  /// @retval size for data
+  /// \retval Size of data
   size_t size()
   {
     return sizeof data_;
   }
 
-  /// @brief set fin bit
+  /// \brief Set FIN bit
   ///
-  /// @param [in] val: fin bit value. 1 or 0
-  /// @retval reference of *this 
-  /// @note if you set !0 (e.g. 100) then set 1
-  AHead& fin(int val)
+  /// \retval Reference of *this 
+  AHead& fin_set()
   {
-    int v = val == 0 ? 0 : 1;
-    data_ = (data_ & 0xff7f) | (v << 7);
-    return *this;
+    return fin(1);
   }
 
-  /// @brief get fin bit
+  /// \brief Reset FIN bit
   ///
-  /// @retval fin bit value
+  /// \retval Reference of *this 
+  AHead& fin_reset()
+  {
+    return fin(0);
+  }
+
+  /// \brief Get FIN bit
+  ///
+  /// \retval FIN bit value. 0 or 1
   int fin()
   {
     return (data_ & 0x0080) >> 7;
   }
 
-  /// @brief set rsv1 bit
+  /// \brief Set RSV1 bit
   ///
-  /// @param [in] val: fin bit value. 1 or 0
-  /// @retval reference of *this 
-  /// @note if you set !0 (e.g. 100) then set 1
-  AHead& rsv1(int val)
+  /// \retval Reference of *this 
+  AHead& rsv1_set()
   {
-    int v = val == 0 ? 0 : 1;
-    data_ = (data_ & 0xffbf) | (v << 6);
-    return *this;
+    return rsv1(1);
   }
 
-  /// @brief get rsv1 bit
+  /// \brief Reset RSV1 bit
   ///
-  /// @retval rsv1 bit value
+  /// \retval Reference of *this 
+  AHead& rsv1_reset()
+  {
+    return rsv1(0);
+  }
+
+  /// \brief Get RSV1 bit
+  ///
+  /// \retval RSV1 bit value
   int rsv1()
   {
     return (data_ & 0x0040) >> 6;
   }
 
-  /// @brief set rsv2 bit
+  /// \brief Set RSV2 bit
   ///
-  /// @param [in] val: rsv2 bit value. 1 or 0
-  /// @retval reference of *this 
-  /// @note if you set !0 (e.g. 100) then set 1
-  AHead& rsv2(int val)
+  /// \retval Reference of *this 
+  AHead& rsv2_set()
   {
-    int v = val == 0 ? 0 : 1;
-    data_ = (data_ & 0xffdf) | (v << 5);
-    return *this;
+    return rsv2(1);
   }
 
-  /// @brief get rsv2 bit
+  /// \brief Reset RSV2 bit
   ///
-  /// @retval rsv2 bit value
+  /// \retval Reference of *this 
+  AHead& rsv2_reset()
+  {
+    return rsv2(0);
+  }
+
+  /// \brief Get RSV2 bit
+  ///
+  /// \retval RSV2 bit value
   int rsv2()
   {
     return (data_ & 0x0020) >> 5;
   }
 
-  /// @brief set rsv3 bit
+  /// \brief Set RSV3 bit
   ///
-  /// @param [in] val: rsv3 bit value. 1 or 0
-  /// @retval reference of *this 
-  /// @note if you set !0 (e.g. 100) then set 1
-  AHead& rsv3(int val)
+  /// \retval Reference of *this 
+  AHead& rsv3_set()
   {
-    int v = val == 0 ? 0 : 1;
-    data_ = (data_ & 0xffef) | (v << 4);
-    return *this;
+    return rsv3(1);
+  }
+  /// \brief Reset RSV3 bit
+  ///
+  /// \retval Reference of *this 
+  AHead& rsv3_reset()
+  {
+    return rsv3(0);
   }
 
-  /// @brief get rsv3 bit
+  /// \brief Get RSV3 bit
   ///
-  /// @retval rsv3 bit value
+  /// \retval rsv3 bit value
   int rsv3()
   {
     return (data_ & 0x0010) >> 4;
   }
 
-  /// @brief set opcode
+  /// \brief Set opcode
   ///
-  /// @param [in] val: opcode value
-  /// @retval reference of *this 
+  /// \param [in] val: opcode value
+  /// \retval Reference of *this 
   AHead& opcode(Opcode val)
   {
     data_ = (data_ & 0xfff0) | static_cast<uint8_t>(val);
     return *this;
   }
 
-  /// @brief get opcode
+  /// \brief Get opcode
   ///
-  /// @retval opcode value
+  /// \retval opcode value
   Opcode opcode()
   {
     return static_cast<Opcode>(data_ & 0x000f);
   }
 
-  /// @brief set mask bit
+  /// \brief Set mask bit
   ///
-  /// @param [in] val: mask bit value. 1 or 0
-  /// @retval reference of *this 
-  /// @note if you set !0 (e.g. 100) then set 1
-  AHead& mask(int val)
+  /// \retval reference of *this 
+  AHead& mask_set()
   {
-    int v = val == 0 ? 0 : 1;
-    data_ = (data_ & 0x7fff) | (v << 15);
-    return *this;
+    return mask(1);
+  }
+  /// \brief Reset mask bit
+  ///
+  /// \retval reference of *this 
+  AHead& mask_reset()
+  {
+    return mask(0);
   }
 
-  /// @brief get mask bit
+  /// \brief Get mask bit
   ///
-  /// @retval mask bit value
+  /// \retval Mask bit value
   int mask()
   {
     return (data_ & 0x8000) >> 15;
   }
 
-  /// @brief set payload len field value
+  /// \brief Set payload len field value
   ///
-  /// @param [in] val: payload length. it is less than equal 127
-  /// @retval reference of *this 
+  /// \param [in] val: Payload length. It is less than equal 127
+  /// \retval Reference of *this 
   AHead& payload_len(int val)
   {
     assert(val <= 127);
@@ -1389,19 +1695,79 @@ public:
     return *this;
   }
 
-  /// @brief get payload length field value
+  /// \brief Get payload length field value
   ///
-  /// @retval payload length field value
+  /// \retval Payload length field value
   int payload_len()
   {
     return (data_ & 0x7f00) >> 8;
   }
 
 private:
-  uint16_t data_ = 0; // network byte order
+  /// \brief Set/Reset FIN bit
+  ///
+  /// \param [in] val: FIN bit value. 1 or 0
+  /// \retval Reference of *this 
+  /// \note If you set !0 (e.g. 100) then set 1
+  AHead& fin(int val)
+  {
+    int v = val == 0 ? 0 : 1;
+    data_ = (data_ & 0xff7f) | (v << 7);
+    return *this;
+  }
+
+  /// \brief Set/Reset RSV1 bit
+  ///
+  /// \param [in] val: RSV1 bit value. 1 or 0
+  /// \retval Reference of *this 
+  /// \note If you set !0 (e.g. 100) then set 1
+  AHead& rsv1(int val)
+  {
+    int v = val == 0 ? 0 : 1;
+    data_ = (data_ & 0xffbf) | (v << 6);
+    return *this;
+  }
+
+  /// \brief Set/Reset RSV2 bit
+  ///
+  /// \param [in] val: RSV2 bit value. 1 or 0
+  /// \retval Reference of *this 
+  /// \note If you set !0 (e.g. 100) then set 1
+  AHead& rsv2(int val)
+  {
+    int v = val == 0 ? 0 : 1;
+    data_ = (data_ & 0xffdf) | (v << 5);
+    return *this;
+  }
+
+  /// \brief Set RSV3 bit
+  ///
+  /// \param [in] val: RSV3 bit value. 1 or 0
+  /// \retval Reference of *this 
+  /// \note If you set !0 (e.g. 100) then set 1
+  AHead& rsv3(int val)
+  {
+    int v = val == 0 ? 0 : 1;
+    data_ = (data_ & 0xffef) | (v << 4);
+    return *this;
+  }
+
+  /// \brief Set mask bit
+  ///
+  /// \param [in] val: Mask bit value. 1 or 0
+  /// \retval reference of *this 
+  /// \note If you set !0 (e.g. 100) then set 1
+  AHead& mask(int val)
+  {
+    int v = val == 0 ? 0 : 1;
+    data_ = (data_ & 0x7fff) | (v << 15);
+    return *this;
+  }
+
+  uint16_t data_ = 0; // Network byte order
 };
 
-/// @brief Sockaddr class
+/// \brief Sockaddr class
 ///
 /// sockaddr structure utility class
 class Sockaddr final {
@@ -1414,11 +1780,11 @@ public:
     uaddr_.storage = addr;
   }
 
-  /// @brief constructer
+  /// \brief Constructer
   ///
-  /// @param [in] saddr: a pointer for struct socaddr instance
-  /// @param [in] addrlen: saddr object size. bytes
-  /// @exception LwsockException
+  /// \param [in] saddr: A pointer for struct socaddr instance
+  /// \param [in] addrlen: saddr object size. bytes
+  /// \exception LwsockException
   Sockaddr(const struct sockaddr* saddr, socklen_t addrlen)
   {
     if (sizeof uaddr_.storage < static_cast<size_t>(addrlen)) {
@@ -1434,11 +1800,35 @@ public:
   Sockaddr& operator=(const Sockaddr&) = default;
   Sockaddr& operator=(Sockaddr&&) = default;
 
-  /// @brief get address family. (e.g. AF_INET, AF_INET6 etc.)
+  /// \brief transform the adress family (AF_*) to string
   ///
-  /// @retval AF_INET: IPv4
-  /// @retval AF_INET6: IPv6
-  /// @exception LwsockException
+  /// \pram [in] af: AF_INET, AF_INET6, AF_UNSPEC
+  /// \retval string. e.g. "AF_INET"
+  static std::string af2str(int af)
+  {
+    std::string str;
+    switch (af) {
+    case AF_INET:
+      str = "AF_INET";
+      break;
+    case AF_INET6:
+      str = "AF_INET6";
+      break;
+    case AF_UNSPEC:
+      str = "AF_UNSPEC";
+      break;
+    default:
+      str = std::to_string(af);
+      break;
+    }
+    return str;
+  }
+
+  /// \brief Get address family. (e.g. AF_INET, AF_INET6 etc.)
+  ///
+  /// \retval AF_INET: IPv4
+  /// \retval AF_INET6: IPv6
+  /// \exception LwsockException
   int af()
   {
     if (ipaddr_.empty()) {
@@ -1447,10 +1837,10 @@ public:
     return uaddr_.saddr.sa_family;
   }
 
-  /// @brief get ip address. result of inet_ntop(3)
+  /// \brief Get ip address. result of inet_ntop(3)
   ///
-  /// @retval ip address string
-  /// @exception LwsockException
+  /// \retval IP address string
+  /// \exception LwsockException
   std::string ip()
   {
     if (!ipaddr_.empty()) {
@@ -1480,9 +1870,9 @@ public:
     return ipaddr_;
   }
 
-  /// @brief get port number
+  /// \brief Get port number
   ///
-  /// @exception LwsockException
+  /// \exception LwsockException
   uint16_t port()
   {
     if (ipaddr_.empty()) {
@@ -1501,7 +1891,7 @@ private:
   uint16_t port_ = 0;
 };
 
-/// @brief Timespec data class
+/// \brief Timespec data class
 class Timespec final {
 public:
   enum {
@@ -1510,10 +1900,10 @@ public:
 
   Timespec() = default;
 
-  /// @brief constructer that the milliseconds specify
+  /// \brief Constructer that the milliseconds specify
   ///
-  /// @param [in] msec: millisecond or TIMEOUT_NOSPEC
-  /// @exception LwsockException
+  /// \param [in] msec: Millisecond or TIMEOUT_NOSPEC
+  /// \exception LwsockException
   explicit Timespec(int32_t msec)
   : msec_(msec)
   {
@@ -1555,18 +1945,18 @@ public:
     return msec_ <= msec;
   }
 
-  /// @brief get a pointer of struct timespec instance
+  /// \brief Get a pointer of struct timespec instance
   ///
-  /// @retval a pointer of struct timespec instance
+  /// \retval A pointer of struct timespec instance
   const struct timespec* ptr() const
   {
     return tm_.get();
   }
 
-  /// @brief transform to string
+  /// \brief Transform to string
   ///
-  /// @retval "struct timespec" string representation. (e.g. {10, 123} or NOSPEC etc.)
-  std::string to_string() const
+  /// \retval "struct timespec" string representation. (e.g. {10, 123} or NOSPEC etc.)
+  std::string to_str() const
   {
     if (msec_ == TIMEOUT_NOSPEC) {
       return "NOSPEC";
@@ -1580,33 +1970,38 @@ private:
   std::unique_ptr<struct timespec> tm_ = nullptr;
 };
 
-#define WSMETHOD "WebSocket::" << __func__
-
-/// @brierf WebSocket class
+/// \brief WebSocket class
+///
 class WebSocket final {
 public:
-  /// Mode enum
+  /// \brief Mode enum
+  ///
   enum class Mode {
     NONE = -1,
     CLIENT = 0,
     SERVER,
   };
 
-  /// opening handshake headers type
+  /// \brief Opening handshake headers type
   ///
-  /// vector: pair <br>
-  ///   pair::first: header name <br>
-  ///   pair::second: value (it does not include \r\n)
+  /// vector<pair> <br>
+  ///   pair::first header name <br>
+  ///   pair::second value (it does not include CRLF)
   using headers_t = std::vector<std::pair<std::string, std::string>>;
 
-  /// opening handshake type
+  /// \brief Opening handshake type
   ///
-  ///   first: requset line or status line (it does not include \r\n) <br>
+  /// pair <br>
+  ///   first: Requset line or status line (it does not include CRLF) <br>
   ///   second: headers_t
   using handshake_t = std::pair<std::string, headers_t>;
 
   WebSocket() = default;
   WebSocket(const WebSocket&) = delete;
+  
+  /// \brief Move constructor
+  ///
+  /// \param [in] ws: WebSocket instance
   WebSocket(WebSocket&& ws) noexcept
   {
     mode_ = ws.mode_;
@@ -1623,19 +2018,23 @@ public:
     remote_ = std::move(ws.remote_);
   }
 
-  // @param [in] mode: Mode::NONE, Mode::CLIENT, Mode::SERVER
+  /// \brief Constuctor
+  ///
+  /// \param [in] mode: Mode::NONE, Mode::CLIENT, Mode::SERVER
   explicit WebSocket(Mode mode)
   : mode_(mode)
-  { }
+  {}
 
+  /// \brief Destructor
+  ///
   ~WebSocket()
   {
     if (sfd_ != -1) {
-      close(sfd_);
+      ::close(sfd_);
     }
     if (!bind_sfds_.empty()) {
       for (auto& sfd : bind_sfds_) {
-        close(sfd);
+        ::close(sfd);
       }
     }
   }
@@ -1657,36 +2056,46 @@ public:
     return *this;
   }
 
-  /// @brief bind address that uri specify. <br>
-  ///   this use getaddrinfo(3) for specified uri, then open sockets and bind addresses.
-  ///
-  /// @param [in] uri: WebSocket URI <br>
-  ///     uri ::= "ws://" host (":" port)? path ("?" query)? <br>
-  ///     host ::= hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
-  /// @retval reference of *this
-  /// @exception CRegexException, GetaddrinfoException, LwsockExrepss
-  WebSocket& bind(const std::string& uri)
+  static std::string prefix()
   {
-    return bind(uri, AF_UNSPEC);
+    return "WebSocket::";
   }
 
-  /// @brief bind address that uri specify. <br>
-  ///   if you use hostname for uri and want to specify IPv4 or IPv6, you should use this method.
+  /// \brief bind(2) with the specified address and the port number.<br>
   ///
-  /// @param [in] uri: WebSocket URI <br>
-  ///     uri ::= "ws://" host (":" port)? path ("?" query)? <br>
-  ///     host ::= hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
-  /// @pram [in] af: AF_INET or AF_INET6 <br>
-  ///     if you want to specify that use IPv4 or IPv6 then you set this param.
-  /// @retval reference of *this
-  /// @exception CRegexException, GetaddrinfoException, LwsockExrepss
-  WebSocket& bind(const std::string& uri, int af)
+  /// This API will bind(2) with the specified address and port number.<br>
+  /// This use getaddrinfo(3) for specified the address(or host) and port number, then each call socket(2) and bind(2).
+  ///
+  /// \param [in] ws_addr_port: The IP address (or hostname) and the port number starting with "ws://" <br>
+  ///     ws_addr_port = "ws://" address [":" port] <br>
+  ///     address = hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
+  /// \retval reference of *this
+  /// \exception CRegexException
+  /// \exception GetaddrinfoException
+  /// \exception LwsockExrepss
+  WebSocket& bind(const std::string& ws_addr_port)
   {
-    assert(!uri.empty());
+    return bind(ws_addr_port, AF_UNSPEC);
+  }
+
+  /// \brief lwsock::WebSocket::bind() with the address family.<br>
+  ///   If you want to explicitly specify IPv4 or IPv6 while using hostname, you should use this API.
+  ///
+  /// \param [in] ws_addr_port: the address and the port starting with "ws://" <br>
+  ///     ws_addr_port = "ws://" address [":" port] <br>
+  ///     address = hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
+  /// \pram [in] af: AF_INET or AF_INET6 <br>
+  ///     if you want to specify that use IPv4 or IPv6 then you set this \param.
+  /// \retval reference of *this
+  /// \exception CRegexException
+  /// \exception GetaddrinfoException
+  /// \exception LwsockExrepss
+  WebSocket& bind(const std::string& ws_addr_port, int af)
+  {
+    assert(!ws_addr_port.empty());
     assert(sfd_ == -1);
 
-    DECLARE_CALLEE(callee, WSMETHOD, "(uri=\"" << uri << "\", af=" << af2str(af) << ")");
-    alog::scoped slog(callee.str());
+    Callee callee(prefix() + __func__, "(ws_addr_port=\"%s\", af=%d)", ws_addr_port, Sockaddr::af2str(af));
 
     if (mode_ != Mode::SERVER) {
       int err = as_int(LwsockErrc::INVALID_MODE);
@@ -1695,25 +2104,25 @@ public:
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
 
-    if (uri.empty()) {
+    if (ws_addr_port.empty()) {
       int err = as_int(LwsockErrc::INVALID_PARAM);
       std::ostringstream oss;
-      oss << callee.str() << " invalid uri.";
+      oss << callee.str() << " invalid ws_addr_port.";
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
 
     if (af != AF_UNSPEC && af != AF_INET && af != AF_INET6) {
       int err = as_int(LwsockErrc::INVALID_PARAM);
       std::ostringstream oss;
-      oss << callee.str() << " invalid af=" << af2str(af);
+      oss << callee.str() << " invalid af=" << Sockaddr::af2str(af);
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
 
-    std::pair<std::string, std::string> host_port;
     std::pair<std::string, std::string> hostport_pathquery;
+    std::pair<std::string, std::string> host_port;
     try {
       // split into host_port part and path_query part.
-      hostport_pathquery = split_hostport_pathquery(uri);
+      hostport_pathquery = split_hostport_pathquery(ws_addr_port);
 
       // split into host part and port number part.
       host_port = split_host_port(hostport_pathquery.first);
@@ -1721,14 +2130,14 @@ public:
     catch (LwsockException& e) {
       int err = as_int(LwsockErrc::INVALID_PARAM);
       std::ostringstream oss;
-      oss << callee.str() << " invalid uri.";
+      oss << callee.str() << " invalid ws_addr_port.";
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
 
-    // split into path part and query part.
-    std::pair<std::string, std::string> path_query = split_path_query(hostport_pathquery.second);
-    path_ = std::move(path_query.first);
-    query_ = std::move(path_query.second);
+    //// split into path part and query part.
+    //std::pair<std::string, std::string> path_query = split_path_query(hostport_pathquery.second);
+    //path_ = std::move(path_query.first);
+    //query_ = std::move(path_query.second);
 
     host_ = host_port.first;
     try {
@@ -1747,10 +2156,7 @@ public:
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
 
-    log_.i()
-        << "host_=\"" << host_ << '\"' << ", port=" << port_ << ", path_=\"" << path_ << '\"' << ", query=\"" << query_ << '\"'
-        << std::endl
-        ;
+    log_.info() << "host_=\"" << host_ << '\"' << ", port=" << port_ << std::endl;
 
     struct addrinfo hints = {0};
     struct addrinfo* res0 = nullptr;
@@ -1764,7 +2170,7 @@ public:
       ;
     hints.ai_socktype = SOCK_STREAM;
 
-    int ret = ::getaddrinfo(host_.empty() ? NULL : host_.c_str(), std::to_string(port_).c_str(), &hints, &res0);
+    int ret = ::getaddrinfo(host_.empty() ? nullptr : host_.c_str(), std::to_string(port_).c_str(), &hints, &res0);
     if (ret != 0) {
       int err = ret;
       std::ostringstream oss;
@@ -1776,10 +2182,10 @@ public:
       int sfd = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
       if (sfd < 0) {
         int err = errno;
-        log_.w() << "::socket(" << res->ai_family << ", " << res->ai_socktype << ", " << res->ai_protocol << ") error=" << err << ". " << strerror(err) << ". Try next." << std::endl;
+        log_.warning() << "::socket(" << res->ai_family << ", " << res->ai_socktype << ", " << res->ai_protocol << ") error=" << err << ". " << strerror(err) << ". Try next." << std::endl;
         continue;
       }
-      log_.d() << "::socket() sfd=" << sfd << std::endl;
+      log_.debug() << "::socket() sfd=" << sfd << std::endl;
 
       int on = 1;
       if (res->ai_family == AF_INET6) {
@@ -1795,11 +2201,11 @@ public:
       ret = ::bind(sfd, res->ai_addr, res->ai_addrlen);
       if (ret < 0) {
         int err = errno;
-        log_.w() << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". closed socket. Try next." << std::endl;
+        log_.warning() << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". closed socket. Try next." << std::endl;
         close_socket(sfd);
         continue;
       }
-      log_.i() << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ")" << std::endl;
+      log_.info() << "::bind(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ")" << std::endl;
 
       bind_sfds_.push_back(sfd);
     }
@@ -1815,18 +2221,18 @@ public:
     return *this;
   }
 
-  /// @brief listen(2) each binded sockets
+  /// \brief listen(2) each binded sockets
   ///
-  /// @param [in] backlog: listen(2)'s backlog
-  /// @retval reference of *this
-  /// @exception SystemErrorException
+  /// \param [in] backlog: listen(2)'s backlog
+  /// \retval Reference of *this
+  /// \exception SystemErrorException
   WebSocket& listen(int backlog)
   {
     assert(mode_ == Mode::SERVER);
     assert(!bind_sfds_.empty());
 
-    DECLARE_CALLEE(callee, WSMETHOD, "(backlog=" << backlog << ")");
-    alog::scoped slog(callee.str());
+    Callee callee(prefix() + __func__, "(backlog=%d)", backlog);
+    ALog::Tracer tracer(callee.str());
 
     std::for_each(std::begin(bind_sfds_), std::end(bind_sfds_), [&](int sfd){
       int ret = ::listen(sfd, backlog);
@@ -1836,29 +2242,30 @@ public:
         oss << callee.str() << "::listen(sfd=" << sfd << ", backlog=" << backlog << ")";
         throw SystemErrorException(Error(err, __LINE__, oss.str()));
       }
-      log_.i() << "::listen(sfd=" << sfd << ", backlog=" << backlog << ")" << std::endl;
+      log_.info() << "::listen(sfd=" << sfd << ", backlog=" << backlog << ")" << std::endl;
     });
 
     return *this;
   }
 
-  /// @brief accept socket
+  /// \brief Accept socket
   ///
-  /// @retval a new WebSocket instance
-  /// @exception LwsockException, SystemErrorException
+  /// \retval A new WebSocket instance
+  /// \exception LwsockException
+  /// \exception SystemErrorException
   WebSocket accept()
   {
     assert(mode_ == Mode::SERVER);
     assert(!bind_sfds_.empty());
 
-    DECLARE_CALLEE(callee, WSMETHOD, "()");
-    alog::scoped slog(callee.str());
+    Callee callee(prefix() + __func__);
+    ALog::Tracer tracer(callee.str());
 
     fd_set rfds;
     FD_ZERO(&rfds);
     int maxsfd = -1;
 
-    log_.i() << "::pselect() wait sfds=";
+    log_.info() << "::pselect() wait sfds=";
     for (size_t i = 0; i < bind_sfds_.size(); ++i) {
       int sfd = bind_sfds_[i];
       FD_SET(sfd, &rfds);
@@ -1900,51 +2307,54 @@ public:
     ws.sfd_ = newsfd;
     ws.host_ = host_;
     ws.port_ = port_;
-    ws.path_ = path_;
-    ws.query_ = query_;
     remote_ = Sockaddr(remote);
 
-    log_.i() << "::accept(sfd=" << sfd << ", ...) newsfd=" << newsfd << ", remote=" << remote_.ip() << ", port=" << remote_.port() << std::endl;
+    log_.info() << "::accept(sfd=" << sfd << ", ...) newsfd=" << newsfd << ", remote=" << remote_.ip() << ", port=" << remote_.port() << std::endl;
     return ws;
   }
 
-  /// @brief accept socket
+  /// \brief Accept socket
   ///
-  /// @param [out] remote: this is set in with the address of the peer socket
-  /// @retval a new WebSocket instance
-  /// @exception LwsockException, SystemErrorException
+  /// \param [out] remote: This is set in with the address of the peer socket
+  /// \retval A new WebSocket instance
+  /// \exception LwsockException
+  /// \exception SystemErrorException
   WebSocket accept(Sockaddr& remote)
   {
-    WebSocket nws = accept(); // newer Websocket instance
+    WebSocket nws = accept(); // newer WebSocket instance
     remote = nws.remote_;
     return nws;
   }
 
-  /// @brief receive a opening handshake request message. blocking receive
+  /// \brief Receive a opening handshake request message. blocking receive
   ///
-  /// @retval received handshake message parameters
-  /// @exception CRegexException, LwsockExrepss, SystemErrorException
+  /// \retval Received handshake message parameters
+  /// \exception CRegexException
+  /// \exception LwsockExrepss
+  /// \exception SystemErrorException
   handshake_t recv_req()
   {
     return recv_req(Timespec());
   }
 
-  /// @brief receive opening handshake request message with timeout. <br>
-  ///   recv_req internally calls recv(2) multiple times. timeout is effective that times.
+  /// \brief Receive opening handshake request message with timeout. <br>
+  ///   recv_req() internally calls recv(2) multiple times. timeout is effective that times.
   ///
-  /// @param [in] timeout: specify timeout. Timespec instance
-  /// @retval received handshake message parameters
-  /// @exception CRegexException, LwsockExrepss, SystemErrorException
+  /// \param [in] timeout: Specify timeout. Timespec instance
+  /// \retval Received handshake message parameters
+  /// \exception CRegexException
+  /// \exception LwsockExrepss
+  /// \exception SystemErrorException
   handshake_t recv_req(const Timespec& timeout)
   {
     assert(sfd_ != -1);
     assert(mode_ == Mode::SERVER);
 
-    DECLARE_CALLEE(callee, WSMETHOD, "(timeout=" << timeout.to_string() << ")");
-    alog::scoped slog(callee.str());
+    Callee callee(prefix() + __func__, "(timeout=%s)", timeout.to_str());
+    ALog::Tracer tracer(callee.str());
 
     std::string recved_response = recv_until_eoh(sfd_, timeout);
-    log_.d() << '\"' << recved_response << '\"'<< std::endl;
+    log_.debug() << '\"' << recved_response << '\"'<< std::endl;
 
     handshake_t handshake_data;
     try {
@@ -1974,18 +2384,9 @@ public:
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
 
-    // if the request path differ expecting path, then respond 404.
     std::pair<std::string, std::string> path_query = split_path_query(tmp[1]);
-    if (path_query.first != path_) {
-      int err = as_int(LwsockErrc::INVALID_HANDSHAKE);
-      std::ostringstream oss;
-      oss << callee.str() << " INVALID_HANDSHAKE path=\"" << path_query.first << "\". require path=" << path_ << ". send 404 and close socket=" << sfd_;
-      handshake_t handshake;
-      handshake.first = "HTTP/1.1 400 Bad Request";
-      send_res_manually(handshake);
-      close_socket(sfd_); // 10.7 when the endpoint sees an opening handshake that does not correspond to the values it is expecting, the endpoint MAY drop the TCP connection.
-      throw LwsockException(Error(err, __LINE__, oss.str()));
-    }
+    path_ = path_query.first;
+    query_ = path_query.second;
 
     auto ite4origin = std::find_if(std::begin(handshake_data.second), std::end(handshake_data.second), [](std::pair<std::string, std::string>& headervalue){
       if (str2lower(headervalue.first) == str2lower("Origin")) {
@@ -2015,29 +2416,29 @@ public:
     return handshake_data;
   }
 
-  /// @brief send an opening handshake response message. <br>
-  ///   send default heades. they are Host, Upgrade, Connection, Sec-WebSocket-Key and Sec-WebSocket-Accept.
+  /// \brief Send an opening handshake response message. <br>
+  ///   Send default heades. they are Host, Upgrade, Connection, Sec-WebSocket-Key and Sec-WebSocket-Accept.
   ///
-  /// @retval sent a message 
-  /// @exception SystemErrorException
+  /// \retval Sent a message 
+  /// \exception SystemErrorException
   std::string send_res()
   {
     return send_res(headers_t{});
   }
 
-  /// @brief send opening handshake response with other headers. <br>
-  ///   if you want to send that add other headers to default headers, then use this api.
+  /// \brief Send opening handshake response with other headers. <br>
+  ///   If you want to send that add other headers to default headers, then use this api.
   ///
-  /// @param [in] otherheaders: other headers
-  /// @retval sent a message 
-  /// @exception SystemErrorException
+  /// \param [in] otherheaders: Other headers
+  /// \retval Sent a message 
+  /// \exception SystemErrorException
   std::string send_res(const headers_t& otherheaders)
   {
     assert(sfd_ != -1);
     assert(mode_ == Mode::SERVER);
 
-    DECLARE_CALLEE(callee, WSMETHOD, "() otherheaders cnt=" << otherheaders.size());
-    alog::scoped slog(callee.str());
+    Callee callee(prefix() + __func__, "() otherheaders count=%u", otherheaders.size());
+    ALog::Tracer tracer(callee.str());
 
     handshake_t handshake;
     handshake.first = "HTTP/1.1 101 Switching Protocols\r\n";
@@ -2057,52 +2458,62 @@ public:
     return send_ohandshake(handshake);
   }
 
-  /// @brief send an opening handshake response message that is set completely manual.
+  /// \brief Send an opening handshake response message that is set completely manual.
   ///
-  /// @param [in] handshake: handshake message parameters
-  /// @retval sent a message 
-  /// @exception SystemErrorException
+  /// \param [in] handshake: Handshake message parameters
+  /// \retval Sent a message 
+  /// \exception SystemErrorException
   std::string send_res_manually(const handshake_t& handshake)
   {
     return send_ohandshake(handshake);
   }
 
-  /// @brief connect to the server
+  /// \brief Connect to the server
   ///
-  /// @param [in] uri: WebSocket URI <br>
+  /// \param [in] uri: WebSocket URI <br>
   ///     uri ::= "ws://" host (":" port)? path ("?" query)? <br>
   ///     host ::= hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
-  /// @retval reference of *this
-  /// @exception CRegexException, GetaddrinfoException, LwsockExrepss, SystemErrorException
+  /// \retval Reference of *this
+  /// \exception CRegexException
+  /// \exception GetaddrinfoException
+  /// \exception LwsockExrepss
+  /// \exception SystemErrorException
   WebSocket& connect(const std::string& uri)
   {
     return connect(uri, Timespec());
   }
 
-  /// @brief connect to the server with timeout
+  /// \brief Connect to the server with timeout
   ///
-  /// @param [in] uri: connect to uri. <br>
+  /// \param [in] uri: connect to uri. <br>
   ///     uri ::= "ws://" host (":" port)? path ("?" query)? <br>
   ///     host ::= hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
-  /// @param [in] timeout: specify timeout. Timespec instance
-  /// @retval reference of *this
-  /// @exception CRegexException, GetaddrinfoException, LwsockExrepss, SystemErrorException
+  /// \param [in] timeout: Specify timeout. Timespec instance
+  /// \retval Reference of *this
+  /// \exception CRegexException
+  /// \exception GetaddrinfoException
+  /// \exception LwsockExrepss
+  /// \exception SystemErrorException
   WebSocket& connect(const std::string& uri, const Timespec& timeout)
   {
     return connect(uri, AF_UNSPEC, timeout);
   }
 
-  /// @brief connect to the server with timeout. and if you use hostname for uri and want to specify IPv4 or IPv6, you should use this method.
+  /// \brief Connect to the server with timeout. and if you use hostname for uri and want to specify IPv4 or IPv6, you should use this method.
   ///
-  /// @param [in] uri: connect to uri. <br>
-  ///     uri ::= "ws://" host (":" port)? path ("?" query)? <br>
+  /// \param [in] uri: connect to uri. <br>
+  ///     uri ::= "ws://" host (":" port)? path? query? <br>
+  ///     path is the URL path that starting "/".  e.g. "/aa/bb/cc" <br>
+  ///     query is the URL query that starting "?". e.g. "?aa=12&bb=xyz" <br>
   ///     host ::= hostname | IPv4_dot_decimal | IPv6_colon_hex <br>
-  /// @pram [in] af: AF_INET or AF_INET6 <br>
-  ///     if you want to specify that use IPv4 or IPv6 then you set this param.
-  /// @param [in] timeout: specify timeout. Timespec instance
-  /// @retval reference of *this
-  /// @exception CRegexException, GetaddrinfoException, LwsockExrepss, SystemErrorException
-  /// @remarks
+  /// \pram [in] af: AF_INET or AF_INET6 <br>
+  ///     If you want to specify that use IPv4 or IPv6 then you set this \param.
+  /// \param [in] timeout: Specify timeout. Timespec instance
+  /// \retval Reference of *this
+  /// \exception CRegexException
+  /// \exception GetaddrinfoException
+  /// \exception LwsockExrepss
+  /// \exception SystemErrorException
   WebSocket& connect(const std::string& uri, int af, const Timespec& timeout)
   {
     assert(mode_ == Mode::CLIENT);
@@ -2110,10 +2521,10 @@ public:
     assert(!uri.empty());
     assert(sfd_ == -1);
 
-    DECLARE_CALLEE(callee, WSMETHOD, "(uri=\"" << uri << "\", af=" << af2str(af) << ", timeout=" << timeout.to_string() << ')');
-    alog::scoped slog(callee.str());
+    Callee callee(prefix() + __func__, "(uri=\"%s\", af=%d, timeout=%s)", uri, Sockaddr::af2str(af), timeout.to_str());
+    ALog::Tracer tracer(callee.str());
 
-    // define a function that it set nonblocking/blocking to sfd.
+    // Define a function that it set nonblocking/blocking to sfd.
     // If nonblock is true, sfd is sat nonblocking.
     // If nonblock is false, sfd is sat blocking.
     auto sfd_nonblock = [](int sfd, bool nonblock) -> int {
@@ -2122,13 +2533,13 @@ public:
       return ret;
     };
 
-    std::pair<std::string, std::string> host_port;
     std::pair<std::string, std::string> hostport_pathquery;
+    std::pair<std::string, std::string> host_port;
     try {
-      // split into host_port part and path_query part.
+      // Split into host_port part and path_query part.
       hostport_pathquery = split_hostport_pathquery(uri);
 
-      // split into host part and port number part.
+      // Split into host part and port number part.
       host_port = split_host_port(hostport_pathquery.first);
     }
     catch (LwsockException& e) {
@@ -2138,9 +2549,8 @@ public:
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
 
-    // split into path part and query part.
+    // Split into path part and query part.
     std::pair<std::string, std::string> path_query = split_path_query(hostport_pathquery.second);
-    //path_ = std::move(path_query.first);
     path_ = path_query.first;
     query_ = std::move(path_query.second);
 
@@ -2161,7 +2571,7 @@ public:
       throw LwsockException(Error(err, __LINE__, oss.str()));
     }
 
-    log_.i() << "host=\"" << host_ << "\", port=" << port_ << ", path=\"" << path_ << "\", query=\"" << query_  << '\"' << std::endl;
+    log_.info() << "host=\"" << host_ << "\", port=" << port_ << ", path=\"" << path_ << "\", query=\"" << query_  << '\"' << std::endl;
 
     int available_sfd = -1;
     struct addrinfo hints = {0};
@@ -2186,23 +2596,23 @@ public:
       int sfd = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
       if (sfd < 0) {
         int err = errno;
-        log_.w() << "socket(" << res->ai_family << ", " << res->ai_socktype << ", " << res->ai_protocol << ") error=" << err << ". " << strerror(err) << ". Try next." << std::endl;
+        log_.warning() << "socket(" << res->ai_family << ", " << res->ai_socktype << ", " << res->ai_protocol << ") error=" << err << ". " << strerror(err) << ". Try next." << std::endl;
         continue;
       }
-      log_.d() << "socket() opened sfd=" << sfd << std::endl;
+      log_.debug() << "socket() opened sfd=" << sfd << std::endl;
 
       int on = 1;
       if (res->ai_family == AF_INET6) {
         setsockopt(sfd, IPPROTO_IPV6, IPV6_V6ONLY, &on, sizeof on);
       }
       setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof on);
-      sfd_nonblock(sfd, true); // set nonblocking mode
+      sfd_nonblock(sfd, true); // Set nonblocking mode
 
       ret = ::connect(sfd, res->ai_addr, res->ai_addrlen);
       if (ret == 0) {
-        sfd_nonblock(sfd, false); // reset blocking mode
+        sfd_nonblock(sfd, false); // Reset blocking mode
         Sockaddr saddr(res->ai_addr, res->ai_addrlen);
-        log_.d() << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") success" << std::endl;
+        log_.debug() << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") success" << std::endl;
         available_sfd = sfd;
         break;
       }
@@ -2218,7 +2628,7 @@ public:
           FD_ZERO(&wfd);
           FD_SET(sfd, &wfd);
           ret = 0;
-          log_.d() << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ", timeout=" << timeout.to_string() << ')' << std::endl;
+          log_.debug() << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ", timeout=" << timeout.to_str() << ')' << std::endl;
           int nfds = sfd + 1;
           ret = pselect(nfds, &rfd, &wfd, nullptr, timeout.ptr(), nullptr);
           if (ret == -1) {
@@ -2229,7 +2639,7 @@ public:
             throw SystemErrorException(Error(err, __LINE__, oss.str()));
           }
           else if (ret == 0) {
-            log_.w() << "::connect() is timeouted, try next." << std::endl;
+            log_.warning() << "::connect() is timeouted, try next." << std::endl;
             close_socket(sfd);
             break; // try a next connection
           }
@@ -2243,17 +2653,17 @@ public:
               }
               Sockaddr saddr(res->ai_addr, res->ai_addrlen);
               if (ret == 0) {
-                log_.w() << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") is closed from the server. Try next" << std::endl;
+                log_.warning() << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") is closed from the server. Try next" << std::endl;
               }
               else {
-                log_.w() << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". Try next" << std::endl;
+                log_.warning() << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". Try next" << std::endl;
               }
               close_socket(sfd);
               continue;
             }
             if (FD_ISSET(sfd, &wfd)) {
-              // connect successed
-              sfd_nonblock(sfd, false); // set blocking mode
+              // Connect successed
+              sfd_nonblock(sfd, false); // Set blocking mode
               available_sfd = sfd;
               remote_ = Sockaddr(res->ai_addr, res->ai_addrlen);
               break;
@@ -2265,7 +2675,7 @@ public:
         else {
           close_socket(sfd);
           Sockaddr saddr(res->ai_addr, res->ai_addrlen);
-          log_.w() << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". closed socket. Try next." << std::endl;
+          log_.warning() << "::connect(sfd=" << sfd << ", ip=\"" << saddr.ip() << "\", port=" << saddr.port() << ") error=" << err << ". " << strerror(err) << ". closed socket. Try next." << std::endl;
 
         }
       }
@@ -2280,31 +2690,31 @@ public:
     }
 
     sfd_ = available_sfd;
-    log_.i() << WSMETHOD << "(sfd=" << sfd_ << ") connect success." << std::endl;
+    log_.info() << prefix() << "(sfd=" << sfd_ << ") connect success." << std::endl;
 
     return *this;
   }
 
-  /// @brief send an opening handshake request message
+  /// \brief Send an opening handshake request message
   ///
-  /// @retval sent a message 
+  /// \retval Sent a message 
   std::string send_req()
   {
     return send_req(headers_t{});
   }
 
-  /// @brief send an opening handshake request message with other headers
+  /// \brief Send an opening handshake request message with other headers
   ///
-  /// @param [in] otherheaders: other headers
-  /// @retval sent a message 
-  /// @exception SystemErrorException
+  /// \param [in] otherheaders: Other headers
+  /// \retval Sent a message 
+  /// \exception SystemErrorException
   std::string send_req(const headers_t& otherheaders)
   {
     assert(sfd_ != -1);
     assert(mode_ == Mode::CLIENT);
 
-    DECLARE_CALLEE(callee, WSMETHOD, "() otherheaders cnt=" << otherheaders.size());
-    alog::scoped slog(callee.str());
+    Callee callee(prefix() + __func__, "() otherheaders cnt=%u", otherheaders.size());
+    ALog::Tracer tracer(callee.str());
 
     std::ostringstream first_line;
     first_line << "GET " << path_ << query_ << " HTTP/1.1" << EOL;
@@ -2328,38 +2738,42 @@ public:
     return send_ohandshake(handshake);
   }
 
-  /// @brief send an opening handshake request message that is set completely manual.
+  /// \brief Send an opening handshake request message that is set completely manual.
   ///
-  /// @param [in] handshake: handshake message parameters
-  /// @retval sent a message 
-  /// @exception SystemErrorException
+  /// \param [in] handshake: Handshake message parameters
+  /// \retval Sent a message 
+  /// \exception SystemErrorException
   std::string send_req_manually(const handshake_t& handshake)
   {
     return send_ohandshake(handshake);
   }
 
-  /// @brief receive an opening handshake response message
+  /// \brief Receive an opening handshake response message
   ///
-  /// @retval pair::first: received handshake message parameters <br>
-  ///         pair::second: status code of the 1st line <br>
-  /// @exception CRegexException, LwsockExrepss, SystemErrorException
+  /// \retval pair::first: Received handshake message parameters <br>
+  ///         pair::second: Status code of the 1st line <br>
+  /// \exception CRegexException
+  /// \exception LwsockExrepss
+  /// \exception SystemErrorException
   std::pair<handshake_t, int32_t> recv_res()
   {
     return recv_res(Timespec());
   }
 
-  /// @brief receive an opening handshake response message with timeout
+  /// \brief Receive an opening handshake response message with timeout
   ///
-  /// @param [in] timeout: specify timeout. Timespec instance
-  /// @retval pair::first: received handshake params <br>
-  ///         pair::second: status code <br>
-  /// @exception CRegexException, LwsockExrepss, SystemErrorException
+  /// \param [in] timeout: Specify timeout. Timespec instance
+  /// \retval pair::first: Received handshake params <br>
+  ///         pair::second: Status code <br>
+  /// \exception CRegexException
+  /// \exception LwsockExrepss
+  /// \exception SystemErrorException
   std::pair<handshake_t, int32_t> recv_res(const Timespec& timeout)
   {
     assert(sfd_ != -1);
 
-    DECLARE_CALLEE(callee, WSMETHOD, "(timeout=" << timeout.to_string() << ")");
-    alog::scoped slog(callee.str());
+    Callee callee(prefix() + __func__, "(timeout=%s)", timeout.to_str());
+    ALog::Tracer tracer(callee.str());
 
     std::string recved_response = recv_until_eoh(sfd_, timeout);
 
@@ -2391,216 +2805,224 @@ public:
       throw LwsockException(Error(e.code(), __LINE__, oss.str()));
     }
 
-    log_.d() << handshake_data.first << std::endl;
+    log_.debug() << handshake_data.first << std::endl;
     for (auto& elm : handshake_data.second) {
-      log_.d() << elm.first << ':' << elm.second << '\n';
+      log_.debug() << elm.first << ':' << elm.second << '\n';
     }
-    log_.d() << std::endl;
+    log_.debug() << std::endl;
 
     return std::pair<handshake_t, int32_t>(handshake_data, status_code);
   }
 
-  /// @brief send a websocket text message to the remote
+  /// \brief Send a websocket text message to the remote
   ///
-  /// @param [in] payload_data: WebSocket payload data
-  /// @retval sent data size. bytes
-  /// @exception SystemErrorException
+  /// \param [in] payload_data: WebSocket payload data
+  /// \retval Sent data size. bytes
+  /// \exception SystemErrorException
   ssize_t send_msg_txt(const std::string& payload_data)
   {
     return send_msg(Opcode::TEXT, payload_data.data(), payload_data.size());
   }
 
-  /// @brief send a websocket binary message to the remote
+  /// \brief Send a websocket binary message to the remote
   ///
-  /// @param [in] payload_data: WebSocket payload data
-  /// @retval sent data size. bytes
-  /// @exception SystemErrorException
+  /// \param [in] payload_data: WebSocket payload data
+  /// \retval Sent data size. bytes
+  /// \exception SystemErrorException
   ssize_t send_msg_bin(const std::vector<uint8_t>& payload_data)
   {
     return send_msg(Opcode::BINARY, payload_data.data(), payload_data.size());
   }
 
-  /// @brief send a websocket binary message to the remote
+  /// \brief Send a websocket binary message to the remote
   ///
-  /// @param [in] payload_data: websocket payload data
-  /// @retval sent data size. bytes
-  /// @exception SystemErrorException
+  /// \param [in] payload_data: WebSocket payload data
+  /// \retval Sent data size. bytes
+  /// \exception SystemErrorException
   template<size_t N> ssize_t send_msg_bin(const std::array<uint8_t, N>& payload_data)
   {
     return send_msg(Opcode::BINARY, payload_data.data(), payload_data.size());
   }
 
-  /// @brief receive a websocket text message from the remote
+  /// \brief Receive a websocket text message from the remote
   ///
-  /// @retval pair::first: a received string message <br>
-  ///         pair::second: status code when recieved a CLOSE frame <br>
-  /// @exception CRegexException, LwsockExrepss, SystemErrorException
+  /// \retval pair::first: A received string message <br>
+  ///         pair::second: Status code when recieved a CLOSE frame <br>
+  /// \exception CRegexException
+  /// \exception LwsockExrepss
+  /// \exception SystemErrorException
   std::pair<std::string, int32_t> recv_msg_txt()
   {
     return recv_msg_txt(Timespec());
   }
 
-  /// @brief receive a websocket text message from the remote with timeout
+  /// \brief Receive a websocket text message from the remote with timeout
   ///
-  /// @param [in] timeout: specify timeout. Timespec instance
-  /// @retval pair::first: a received string message <br>
-  ///         pair::second: status code when recieved a CLOSE frame <br>
-  /// @exception LwsockException, SystemErrorException
+  /// \param [in] timeout: Specify timeout. Timespec instance
+  /// \retval pair::first: A received string message <br>
+  ///         pair::second: Status code when recieved a CLOSE frame <br>
+  /// \exception LwsockExrepss
+  /// \exception SystemErrorException
   std::pair<std::string, int32_t> recv_msg_txt(const Timespec& timeout)
   {
     assert(sfd_ != -1);
 
-    DECLARE_CALLEE(callee, WSMETHOD, "(timeout=" << timeout.to_string() << ")");
-    alog::scoped slog(callee.str());
+    Callee callee(prefix() + __func__, "(timeout=%s)", timeout.to_str());
+    ALog::Tracer tracer(callee.str());
 
     std::pair<std::string, int32_t> result = recv_msg<std::string>(timeout);
 
     return result;
   }
 
-  /// @brief receive a websocket binary message from the remote
+  /// \brief Receive a websocket binary message from the remote
   ///
-  /// @retval pair::first: a received binary message <br>
-  ///         pair::second: status code when recieved a CLOSE frame <br>
-  /// @exception LwsockException, SystemErrorException
+  /// \retval pair::first: A received binary message <br>
+  ///         pair::second: Status code when recieved a CLOSE frame <br>
+  /// \exception LwsockExrepss
+  /// \exception SystemErrorException
   std::pair<std::vector<uint8_t>, int32_t> recv_msg_bin()
   {
     return recv_msg_bin(Timespec());
   }
 
-  /// @brief receive a websocket binary message from the remote with timeout
+  /// \brief Receive a websocket binary message from the remote with timeout
   ///
-  /// @param [in] timeout: specify timeout. Timespec instance
-  /// @retval pair::first: a received binary message <br>
-  ///         pair::second: status code when recieved a CLOSE <br>
-  /// @exception LwsockException, SystemErrorException
+  /// \param [in] timeout: Specify timeout. Timespec instance
+  /// \retval pair::first: A received binary message <br>
+  ///         pair::second: Status code when recieved a CLOSE <br>
+  /// \exception LwsockExrepss
+  /// \exception SystemErrorException
   std::pair<std::vector<uint8_t>, int32_t> recv_msg_bin(const Timespec& timeout)
   {
     assert(sfd_ != -1);
 
-    DECLARE_CALLEE(callee, WSMETHOD, "(timeout=" << timeout.to_string() << ")");
-    alog::scoped slog(callee.str());
+    Callee callee(prefix() + __func__, "(timeout=%s)", timeout.to_str());
+    ALog::Tracer tracer(callee.str());
 
     std::pair<std::vector<uint8_t>, int32_t> result = recv_msg<std::vector<uint8_t>>(timeout);
     return result;
   }
 
-  /// @brief send a PING frame
+  /// \brief Send a PING frame
   ///
-  /// @retval sent data size. bytes
-  /// @exception SystemErrorException
+  /// \retval Sent data size. bytes
+  /// \exception SystemErrorException
   ssize_t send_ping()
   {
     return send_msg(Opcode::PING, "", 0);
   }
 
-  /// @brief send a PING frame with a text app data
+  /// \brief Send a PING frame with a text app data
   ///
-  /// @param [in] app_data: app data
-  /// @retval sent data size. bytes
-  /// @exception SystemErrorException
+  /// \param [in] app_data: App data
+  /// \retval Sent data size. bytes
+  /// \exception SystemErrorException
   ssize_t send_ping(const std::string& app_data)
   {
     return send_msg(Opcode::PING, app_data.data(), app_data.size());
   }
 
-  /// @brief send PING frame with a binary app data
+  /// \brief Send PING frame with a binary app data
   ///
-  /// @param [in] app_data: app data
-  /// @retval sent size. bytes
-  /// @exception SystemErrorException
+  /// \param [in] app_data: App data
+  /// \retval Sent size. bytes
+  /// \exception SystemErrorException
   ssize_t send_ping(const std::vector<uint8_t>& app_data)
   {
     return send_msg(Opcode::PING, app_data.data(), app_data.size());
   }
 
-  /// @brief send PING frame with a binary app data
+  /// \brief Send PING frame with a binary app data
   ///
-  /// @param [in] app_data: app data
-  /// @retval sent size. bytes
-  /// @exception SystemErrorException
+  /// \param [in] app_data: App data
+  /// \retval Sent size. bytes
+  /// \exception SystemErrorException
   template<size_t N> ssize_t send_ping(const std::array<uint8_t, N>& app_data)
   {
     return send_msg(Opcode::PING, app_data.data(), app_data.size());
   }
 
-  /// @brief send a PONG frame
+  /// \brief Send a PONG frame
   ///
-  /// @retval sent size. bytes
-  /// @exception SystemErrorException
+  /// \retval Sent size. bytes
+  /// \exception SystemErrorException
   ssize_t send_pong()
   {
     return send_msg(Opcode::PONG, nullptr, 0);
   }
 
-  /// @brief send a PONG frame with a text app data
+  /// \brief Send a PONG frame with a text app data
   ///
-  /// @param [in] app_data: app data
-  /// @retval sent size. bytes
-  /// @exception SystemErrorException
+  /// \param [in] app_data: App data
+  /// \retval Sent size. bytes
+  /// \exception SystemErrorException
   ssize_t send_pong(const std::string& app_data)
   {
-    DECLARE_CALLEE(callee, WSMETHOD, "(app_data=0x" << std::hex << app_data << ")");
-    alog::scoped slog(callee.str());
+    Callee callee(prefix() + __func__, "(app_data text=\"%s\")", app_data);
+    ALog::Tracer tracer(callee.str());
 
     return send_msg(Opcode::PONG, app_data.data(), app_data.size());
   }
 
-  /// @brief send a PONG frame with a binary app data
+  /// \brief Send a PONG frame with a binary app data
   ///
-  /// @param [in] app_data: app data
-  /// @retval sent size. bytes
-  /// @exception SystemErrorException
+  /// \param [in] app_data: App data
+  /// \retval Sent size. bytes
+  /// \exception SystemErrorException
   ssize_t send_pong(const std::vector<uint8_t>& app_data)
   {
-    DECLARE_CALLEE(callee, WSMETHOD, "(app_data=0x" << std::hex << &app_data << ")");
-    alog::scoped slog(callee.str());
+    Callee callee(prefix() + __func__, "(app_data binary=...) (not yet implement)");
+    ALog::Tracer tracer(callee.str());
 
     return send_msg(Opcode::PONG, app_data.data(), app_data.size());
   }
 
-  /// @brief send a PONG frame with a binary app data
+  /// \brief Send a PONG frame with a binary app data
   ///
-  /// @param [in] app_data: app data
-  /// @retval sent size. bytes
-  /// @exception SystemErrorException
+  /// \param [in] app_data: App data
+  /// \retval Sent size. Bytes
+  /// \exception SystemErrorException
   template<size_t N> ssize_t send_pong(const std::array<uint8_t, N>& app_data)
   {
-    DECLARE_CALLEE(callee, WSMETHOD, "(app_data=0x" << std::hex << &app_data << ")");
-    alog::scoped slog(callee.str());
+    Callee callee(prefix() + __func__, "(app_data binary=...) (not yet implement)");
+    ALog::Tracer tracer(callee.str());
 
     return send_msg(Opcode::PONG, app_data.data(), app_data.size());
   }
 
-  /// @brief send CLOSE frame. send CLOSE frame, then wait a response (maybe CLOSE frame) or wait closing socket from the remote.
+  /// \brief Send CLOSE frame. send CLOSE frame, then wait a response (maybe CLOSE frame) or wait closing socket from the remote.
   ///
-  /// @param [in] status_code: status code
-  /// @exception LwsockException, SystemErrorException
+  /// \param [in] status_code: Status code
+  /// \exception LwsockExrepss
+  /// \exception SystemErrorException
   void send_close(const uint16_t status_code)
   {
     send_close(status_code, "", Timespec());
   }
 
-  /// @brief send CLOSE frame. send CLOSE frame, then wait a response (maybe CLOSE frame) or wait closing socket from the remote.
+  /// \brief Send CLOSE frame. send CLOSE frame, then wait a response (maybe CLOSE frame) or wait closing socket from the remote.
   ///
-  /// @param [in] status_code: status code
-  /// @param [in] reason: reason string
-  /// @exception LwsockException, SystemErrorException
+  /// \param [in] status_code: Status code
+  /// \param [in] reason: Reason string
+  /// \exception LwsockExrepss
+  /// \exception SystemErrorException
   void send_close(const uint16_t status_code, const std::string& reason)
   {
     send_close(status_code, reason, Timespec());
   }
 
-  /// @brief send CLOSE frame with timeout. send CLOSE frame, then wait a response (maybe CLOSE frame) or wait closing socket from the remote.
+  /// \brief Send CLOSE frame with timeout. send CLOSE frame, then wait a response (maybe CLOSE frame) or wait closing socket from the remote.
   ///
-  /// @param [in] status_code: status code
-  /// @param [in] reason: reason
-  /// @param [in] timeout: specify timeout. Timespec instance
-  /// @exception LwsockException, SystemErrorException
+  /// \param [in] status_code: Status code
+  /// \param [in] reason: Reason
+  /// \param [in] timeout: Specify timeout. Timespec instance
+  /// \exception LwsockExrepss
+  /// \exception SystemErrorException
   void send_close(const uint16_t status_code, const std::string& reason, const Timespec& timeout)
   {
-    DECLARE_CALLEE(callee, WSMETHOD, "(status_code=" << status_code << ", reason=\"" << reason << "\", timeout=" << timeout.to_string() << ")");
-    alog::scoped slog(callee.str());
+    Callee callee(prefix() + __func__, "(status_code=%h, reason=\"%s\", timeout=%s)", status_code, reason, timeout.to_str());
+    ALog::Tracer tracer(callee.str());
 
     std::vector<uint8_t> appdata(sizeof status_code + reason.size());
     {
@@ -2615,7 +3037,7 @@ public:
     }
     catch (SystemErrorException& see) {
       if (see.code() == EBADF || see.code() == EPIPE) {
-        ; // nop
+        ; // NOP
       }
       else {
         throw see;
@@ -2624,52 +3046,86 @@ public:
     close_websocket(sfd_, timeout);
   }
 
-  /// @brief get Sockaddr about the remote
+  /// \brief Get Sockaddr about the remote
   ///
-  /// @retval Sockaddr
+  /// \retval Sockaddr
   Sockaddr remote()
   {
     return remote_;
   }
 
-  /// @brief get the request path
+  /// \brief Get the request path
   ///
-  /// @retval path (e.g. "/path/a/b/c")
+  /// \retval Path (e.g. "/path/a/b/c")
   std::string path()
   {
     return path_;
   }
 
-  /// @brief get the request query parameters.
+  /// \brief Set the request path
   ///
-  /// @retval query (e.g. "?aa=123&bb=xyz")
+  /// \retval Path (e.g. "/path/a/b/c")
+  void path(const std::string& req_path)
+  {
+    path_ = req_path;
+  }
+  void path(std::string&& req_path)
+  {
+    path_ = std::move(req_path);
+  }
+
+  /// \brief Get the request query parameters.
+  ///
+  /// \retval Query (e.g. "?aa=123&bb=xyz")
   std::string query()
   {
     return query_;
   }
 
-  /// @brief get the Origin header's value in the request headers, if client is a web browser.
+  /// \brief Set the request query parameters.
   ///
-  /// @retval a value of Origin header
+  /// \retval Query (e.g. "?aa=123&bb=xyz")
+  void query(const std::string& req_query)
+  {
+    query_ = req_query;
+  }
+  void query(std::string&& req_query)
+  {
+    query_ = std::move(req_query);
+  }
+
+  /// \brief Get the Origin header's value in the request headers, if client is a web browser.
+  ///
+  /// \retval A value of Origin header
   std::string origin()
   {
     return origin_;
   }
 
-
-  /// @brief get the raw sockfd that connected or accepted. you must not close it.
+  /// \brief Get the raw sockfd that connected or accepted. You must not close it.
   ///
-  /// @retval raw sockfd
-  /// @note: you must not close the socket
+  /// \retval Raw sockfd
+  /// \note: You must not close the socket
+  int raw_sfd()
+  {
+    return sfd_;
+  }
+
+  /// \brief [[deprecated]] Get the raw sockfd that connected or accepted. you must not close it.
+  ///
+  /// \retval Raw sockfd
+  /// \note: You must not close the socket
+  [[deprecated("please use raw_sfd()")]]
   int sfd_ref()
   {
     return sfd_;
   }
 
-  /// @brief get the raw sockfd that connected or accepted.
+  /// \brief Get the raw sockfd that connected or accepted.
   ///
-  /// @retval raw sockfd
-  /// @note: you must close the socket yourself when sockfd was no necessary
+  /// \retval Raw sockfd
+  /// \note: You must close the socket yourself when sockfd was no necessary
+  [[deprecated("obsoleted")]]
   int sfd_mv()
   {
     int sfd = sfd_;
@@ -2677,44 +3133,66 @@ public:
     return sfd;
   }
 
-  /// @brief get reference of binded sockfds
+  /// \brief Get reference of binded sockfds
   ///
-  /// @retval sockfds
-  /// @note: you must not close the socket
+  /// \retval Socket fds
+  /// \note: You must not close the socket
   const std::vector<int>& bind_sfds()
   {
     return bind_sfds_;
   }
 
-  /// @brief set ostream for log. output log to the ostream
+  /// \brief Set ostream for log. output log to the ostream
   ///
-  /// @param [in] ost: ostream
-  /// @retval reference of *this
+  /// \param [in] ost: ostream
+  /// \retval Reference of *this
   WebSocket& ostream4log(std::ostream& ost)
   {
     log_.ostream(ost);
     return *this;
   }
 
-  /// @briaf set log level
+  /// \briaf Set log level
   ///
-  /// @param [in] lvl: log level
-  /// @retval reference of *this
+  /// \param [in] lvl: Log level
+  /// \retval Reference of *this
   WebSocket& loglevel(LogLevel lvl)
   {
     log_.level(lvl);
     return *this;
   }
 
-  /// @brief get now log level
+  /// \brief Get now log level
 
-  /// @retval now log level
+  /// \retval Now log level
   LogLevel loglevel()
   {
     return log_.level();
   }
 
 private:
+  /// \brief Transform the string to the lowercase string
+  ///
+  /// \param [in] str: Target string
+  /// \retval Lower case string
+  static std::string str2lower(const std::string& str)
+  {
+    std::string result;
+    std::transform(std::begin(str), std::end(str), std::back_inserter(result), ::tolower);
+    return result;
+  }
+
+  /// \brief Transform the string to the uppercase string
+  ///
+  /// \param [in] str: Target string
+  /// \retval Upper case string
+  static std::string str2upper(const std::string& str)
+  {
+    std::string result;
+    std::transform(std::begin(str), std::end(str), std::back_inserter(result), ::toupper);
+    return result;
+  }
+
   void init()
   {
     //mode_ = Mode::NONE;
@@ -2728,16 +3206,16 @@ private:
     remote_ = Sockaddr();
   }
 
-  /// @brief close sockfd
+  /// \brief Close sockfd
   ///
-  /// @param [in out] sfd: sockfd
+  /// \param [in out] sfd: Socket fd
   void close_socket(int& sfd)
   {
-    DECLARE_CALLEE(callee, WSMETHOD, "(sfd=" << sfd << ")");
+    Callee callee(prefix() + __func__, "(sfd=%d)", sfd);
     if (sfd != -1) {
-      alog::scoped slog(LogLevel::DEBUG, callee.str());
+      ALog::Tracer tracer(LogLevel::DEBUG, callee.str());
 
-      log_.i() << "::close(sfd=" << sfd << ')' << std::endl;
+      log_.info() << "::close(sfd=" << sfd << ')' << std::endl;
 
       int ret = ::close(sfd);
       if (ret == -1) {
@@ -2755,15 +3233,15 @@ private:
     }
   }
 
-  /// @brief close websocket with timeout. refered RFC6455 7.1.1.
+  /// \brief Close websocket with timeout. refered RFC6455 7.1.1.
   ///
-  /// @param [in out] sfd: sockfd
-  /// @param [in] timeout: specify timeout. Timespec instance
-  /// @exception SystemErrorException
+  /// \param [in out] sfd: Socket fd
+  /// \param [in] timeout: Specify timeout. Timespec instance
+  /// \exception SystemErrorException
   void close_websocket(int& sfd, const Timespec& timeout)
   {
-    DECLARE_CALLEE(callee, WSMETHOD, "(sfd=" << sfd << ", timeout=" << timeout.to_string() << ")");
-    alog::scoped slog(LogLevel::DEBUG, callee.str());
+    Callee callee(prefix() + __func__, "(sfd=%d, timeout=%s)", sfd, timeout.to_str());
+    ALog::Tracer tracer(LogLevel::DEBUG, callee.str());
 
     if (sfd == -1) {
       return;
@@ -2776,7 +3254,7 @@ private:
       }
       catch (SystemErrorException& see) {
         if (see.code() == EBADF || see.code() == ECONNREFUSED) {
-          ; // nop
+          ; // NOP
         }
         else {
           throw see;
@@ -2786,15 +3264,15 @@ private:
     close_socket(sfd);
   }
 
-  /// @brief send opening handshake
+  /// \brief Send opening handshake
   ///
-  /// @param [in] handshake_data: handshake data
-  /// @retval string transformed handshake data 
-  /// @exception SystemErrorException
+  /// \param [in] handshake_data: Handshake data
+  /// \retval String transformed handshake data 
+  /// \exception SystemErrorException
   std::string send_ohandshake(const handshake_t& handshake_data)
   {
-    DECLARE_CALLEE(callee, WSMETHOD, "(handshake_data=" << std::hex << &handshake_data << ")");
-    alog::scoped slog(LogLevel::DEBUG, callee.str());
+    Callee callee(prefix() + __func__, "(handshake_data=...) not yet implement");
+    ALog::Tracer tracer(LogLevel::DEBUG, callee.str());
 
     std::string first_line = handshake_data.first;
     headers_t headers = handshake_data.second;
@@ -2806,20 +3284,21 @@ private:
     }
     oss << EOL;
     //log_(LogLevel::DEBUG) << "\"" << oss.str() << "\" size=" << std::dec << oss.str().size() << std::endl;
-    log_.d() << '\"' << oss.str() << '\"' << std::endl;
+    log_.debug() << '\"' << oss.str() << '\"' << std::endl;
 
     size_t ret = send_fill(sfd_, oss.str().c_str(), oss.str().size());
     assert(ret == oss.str().size());
-    log_.d() << "sent size=" << oss.str().size() << std::endl;
+    log_.debug() << "sent size=" << oss.str().size() << std::endl;
     return oss.str();
   }
 
-  /// @brief receive a message with timeout
+  /// \brief Receive a message with timeout
   ///
-  /// @param [in] timeout: specify timeout. Timespec instance
-  /// @retval pair::first: received a message. if websocket was closed from the remote, then size()==0 <br>
-  ///         pair::second: staus code when websocket is closed from the remote <br>
-  /// @exception LwsockException, SystemErrorException
+  /// \param [in] timeout: Specify timeout. Timespec instance
+  /// \retval pair::first: Received a message. if websocket was closed from the remote, then size()==0 <br>
+  ///         pair::second: Staus code when websocket is closed from the remote <br>
+  /// \exception LwsockExrepss
+  /// \exception SystemErrorException
   template<typename T> std::pair<T, int32_t> recv_msg(const Timespec& timeout)
   {
     static_assert(std::is_base_of<T, std::string>::value || std::is_base_of<T, std::vector<uint8_t>>::value, "Require T is std::string or std::vector<uint8_t>");
@@ -2827,22 +3306,22 @@ private:
     assert(sfd_ != -1);
     assert(timeout >= -1);
 
-    DECLARE_CALLEE(callee, WSMETHOD, "(timeout=" << timeout.to_string() << ")");
-    alog::scoped slog(LogLevel::DEBUG, callee.str());
+    Callee callee(prefix() + __func__, "(timeout=%s)", timeout.to_str());
+    ALog::Tracer tracer(LogLevel::DEBUG, callee.str());
 
     std::pair<T, int32_t> result{{}, 0};
     AHead ahead;
     bool txtflg = false;
     do {
-      log_.d() << "  [[ receive a part of header ..." << std::endl;
+      log_.debug() << "  [[ receive a part of header ..." << std::endl;
       ssize_t ret = recv_fill(sfd_, ahead.data_ptr(), ahead.size(), timeout);
-      if (ret == 0) { // socket is closed.
+      if (ret == 0) { // Socket is closed.
         result.first.clear();
         result.second = 1006; // RFC6455 7.1.5. "The WebSocket Connection Close Code is considered to be 1006."
         close_socket(sfd_);
         return result;
       }
-      log_.d() << "  ]] receive a part of header...result="
+      log_.debug() << "  ]] receive a part of header...result="
         << " raw=0x" << std::hex << std::setw(4) << std::setfill('0') << ahead.data() << std::dec
         << ", fin=" << ahead.fin() << ", rsv1=" << ahead.rsv1() << ", rsv2=" << ahead.rsv2() << ", rsv3=" << ahead.rsv3()
         << ", opcode=0x" << std::hex << std::setw(2) << std::setfill('0') << as_int(ahead.opcode()) << std::setw(0) << std::dec
@@ -2857,7 +3336,7 @@ private:
         int err = as_int(LwsockErrc::FRAME_ERROR);
         std::ostringstream oss;
         oss << callee.str() << " rsv1=" << ahead.rsv1() << ", rsv2=" << ahead.rsv2() << ", rsv3=" << ahead.rsv3();
-        log_.w() << oss.str() << std::endl;
+        log_.warning() << oss.str() << std::endl;
         close_websocket(sfd_, timeout);
         throw LwsockException(Error(err, __LINE__, oss.str()));
       }
@@ -2897,7 +3376,7 @@ private:
         payload_len = ahead.payload_len();
         break;
       }
-      log_.d() << "  eventually payload len=" << payload_len << std::endl;
+      log_.debug() << "  eventually payload len=" << payload_len << std::endl;
 
       if ((mode_ == Mode::SERVER && ahead.mask() == 0) || (mode_ == Mode::CLIENT && ahead.mask() == 1)) {
         int err = as_int(LwsockErrc::BAD_MESSAGE);
@@ -2910,10 +3389,10 @@ private:
 
       uint32_t masking_key = 0;
       if (ahead.mask()) {
-        log_.d() << "  [[ receive masking key..." << std::endl;
+        log_.debug() << "  [[ receive masking key..." << std::endl;
         ret = recv_fill(sfd_, &masking_key, sizeof masking_key, timeout);
         // TODO ret == 0 case
-        log_.d() << "  ]] receive masking key...raw=0x" << std::hex << std::setw(8) << std::setfill('0') << masking_key << std::endl;
+        log_.debug() << "  ]] receive masking key...raw=0x" << std::hex << std::setw(8) << std::setfill('0') << masking_key << std::endl;
       }
 
       // receive payload data
@@ -2937,27 +3416,27 @@ private:
 
       case Opcode::PING:
         {
-          log_.i() << "received Ping frame. app_data_sz=" << payload_data.size() << ", then send PONG" << std::endl;
+          log_.info() << "received Ping frame. app_data_sz=" << payload_data.size() << ", then send PONG" << std::endl;
           send_pong(payload_data);
         }
         continue;
       case Opcode::PONG:
-        log_.i() << "received Pong frame. app_data_sz=" << payload_data.size() << std::endl;
+        log_.info() << "received Pong frame. app_data_sz=" << payload_data.size() << std::endl;
         continue;
       case Opcode::CLOSE:
         {
-          uint16_t scode = 0; // status code;
+          uint16_t scode = 0; // Status code;
           std::string reason;
           if (payload_data.size() > 0) {
-            uint16_t be_scode = 0; // big endian status code
+            uint16_t be_scode = 0; // Big endian status code
             ::memcpy(&be_scode, payload_data.data(), sizeof be_scode);
-            scode = ntohs(be_scode); // status code
-            log_.i() << "received CLOSE frame from the remote, status_code=" << std::dec << scode << ", then send CLOSE" << std::endl;
+            scode = ntohs(be_scode); // Status code
+            log_.info() << "received CLOSE frame from the remote, status_code=" << std::dec << scode << ", then send CLOSE" << std::endl;
             result.first.clear();
             result.second = scode;
           }
           else {
-            log_.i() << "received CLOSE frame from the remote, status_code is none," << ", then send CLOSE" << std::endl;
+            log_.info() << "received CLOSE frame from the remote, status_code is none," << ", then send CLOSE" << std::endl;
             result.first.clear();
             result.second = 1005;
             reason = "RFC6455 7.1.5. \"If this Close control frame contains no status code, The WebSocket Connection Close Code is considered to be 1005.\"";
@@ -2972,7 +3451,7 @@ private:
           }
           catch (SystemErrorException& e) {
             if (e.code() == EBADF || e.code() == EPIPE) {
-                ; // nop. socket is closed already
+                ; // NOP. Socket is closed already
             }
             else {
               throw e;
@@ -2982,12 +3461,12 @@ private:
         }
         continue;
 
-      default: // faild
+      default: // Faild
         // TODO
         close_socket(sfd_);
         continue;
       }
-      // append received data
+      // Append received data
       std::copy(std::begin(payload_data), std::end(payload_data), std::back_inserter(result.first));
     } while (ahead.fin() == 0 && ahead.opcode() != Opcode::CLOSE);
 
@@ -2999,26 +3478,31 @@ private:
     return result;
   }
 
-  /// @brief send a message
+  /// \brief Send a message
   ///
-  /// @pwaram [in] opcode: opcode
-  /// @param [in] payload_data_org : extension data + app data
-  /// @param [in] payload_data_sz: payload_data_org object size. bytes
-  /// @retval sent size
-  /// @exception SystemErrorException
+  /// \pwaram [in] opcode: opcode
+  /// \param [in] payload_data_org : Extension data + app data
+  /// \param [in] payload_data_sz: Payload_data_org object size. Bytes
+  /// \retval Sent size
+  /// \exception SystemErrorException
   ssize_t send_msg(Opcode opcode, const void* payload_data_org, const size_t payload_data_sz)
   {
     assert(mode_ == Mode::CLIENT || mode_ == Mode::SERVER);
     assert(sfd_ != -1);
     assert(opcode == Opcode::TEXT || opcode == Opcode::BINARY || opcode == Opcode::CLOSE || opcode == Opcode::PING);
 
-    DECLARE_CALLEE(callee, WSMETHOD, "(opcode=0x" << std::hex << std::setw(2) << std::setfill('0') << as_int(opcode) << std::setw(0) << ", payload_data_org=" << payload_data_org << ", payload_data_sz=" << std::dec << payload_data_sz << ")");
-    alog::scoped slog(LogLevel::DEBUG, callee.str());
+    Callee callee(prefix() + __func__, "(opcode=0x%02x, payload_data=..., payload_data_sz=%u", as_int(opcode), payload_data_sz);
+    ALog::Tracer tracer(LogLevel::DEBUG, callee.str());
 
     AHead ahead;
-    ahead.fin(1);
+    ahead.fin_set();
     ahead.opcode(opcode);
-    ahead.mask(mode_ == Mode::CLIENT ? 1 : 0);
+    if (mode_ == Mode::CLIENT) {
+      ahead.mask_set();
+    }
+    else {
+      ahead.mask_reset();
+    }
 
     union {
       uint16_t bit16;
@@ -3074,22 +3558,22 @@ private:
 
     ssize_t sentsz = send_fill(sfd_, frame.data(), frame.size());
 
-    slog.clear() << "WebSocket::send_msg(opcode=0x" << std::hex << std::setw(2) << std::setfill('0') << as_int(opcode) << std::dec << ", ...) total sent size=" << sentsz;
+    tracer.clear() << "WebSocket::send_msg(opcode=0x" << std::hex << std::setw(2) << std::setfill('0') << as_int(opcode) << std::dec << ", ...) total sent size=" << sentsz;
 
     return sentsz;
   }
 
-  /// @brief send data untill specified size
+  /// \brief Send data untill specified size
   ///
-  /// @param [in] sfd: sockfd
-  /// @param [in] buff: data pointer
-  /// @param [in] buffsz: buff object size
-  /// @retval sent size
-  /// @exception SystemErrorException
+  /// \param [in] sfd: Socket fd
+  /// \param [in] buff: Data pointer
+  /// \param [in] buffsz: Buff object size
+  /// \retval Sent size
+  /// \exception SystemErrorException
   ssize_t send_fill(int sfd, const void* buff, const size_t buffsz)
   {
-    DECLARE_CALLEE(callee, WSMETHOD, "(sfd=" << sfd << ", buff=" << std::hex << buff << ", buffsz=" << std::dec << buffsz << ")");
-    alog::scoped slog(LogLevel::DEBUG, callee.str());
+    Callee callee(prefix() + __func__, "(sfd=%d, buff=..., buffsz=%u)", sfd, buffsz);
+    ALog::Tracer tracer(LogLevel::DEBUG, callee.str());
 
     const uint8_t* ptr = static_cast<const uint8_t*>(buff);
     size_t sent_sz = 0;
@@ -3111,23 +3595,23 @@ private:
       nanosleep(&ts, nullptr);
     }
 
-    slog.clear() << WSMETHOD << "(sfd=" << sfd << ", ...) result=" << sent_sz;
+    tracer.clear() << prefix() << "(sfd=" << sfd << ", ...) result=" << sent_sz;
     return sent_sz;
   }
 
-  /// @brief recv(2) with timeout.
+  /// \brief recv(2) with timeout.
   ///
-  /// @param [in] sfd: sockfd
-  /// @param [out] buff: buffer pointer
-  /// @param [in] buffsz: buffer size
-  /// @param [in] timeout: specify timeout. Timespec instance
-  /// @reval > 0 received size
-  /// @reval ==0 socket was closed
-  /// @exception SystemErrorException
+  /// \param [in] sfd: Socket fd
+  /// \param [out] buff: Buffer pointer
+  /// \param [in] buffsz: Buffer size
+  /// \param [in] timeout: Specify timeout. Timespec instance
+  /// \reval > 0 Received size
+  /// \reval ==0 Socket was closed
+  /// \exception SystemErrorException
   ssize_t recv_with_timeout(int sfd, void* buff, size_t buffsz, const Timespec& timeout)
   {
-    DECLARE_CALLEE(callee, WSMETHOD, "(sfd=" << sfd << ", buff=" << std::hex << buff << ", buffsz=" << std::dec << buffsz << ", timeout=" << timeout.to_string() << ")");
-    alog::scoped slog(LogLevel::DEBUG, callee.str());
+    Callee callee(prefix() + __func__, "(sfd=%d, buff=..., buffsz=%u, timeout=%s)", sfd, buffsz, timeout.to_str());
+    ALog::Tracer tracer(LogLevel::DEBUG, callee.str());
 
     fd_set rfd;
     FD_ZERO(&rfd);
@@ -3155,31 +3639,32 @@ private:
       throw SystemErrorException(Error(err, __LINE__, oss.str()));
     }
 
-    slog.clear() << WSMETHOD << "(sfd=" << sfd << ", ...) result=" << result;
+    tracer.clear() << prefix() << "(sfd=" << sfd << ", ...) result=" << result;
     return result;
   }
 
-  /// @brief receive untill specified size with timeout
+  /// \brief Receive untill specified size with timeout
   ///
-  /// @param [in] sfd: sockfd
-  /// @param [out] buff: buffer's pointer
-  /// @param [in] expect_sz: expect size
-  /// @param [in] timeout: specify timeout. Timespec instance
-  /// @reval > 0 received size
-  /// @reval ==0 socket was closed
-  /// @exception LwsockException, SystemErrorException
+  /// \param [in] sfd: Socket fd
+  /// \param [out] buff: Buffer's pointer
+  /// \param [in] expect_sz: Expect size
+  /// \param [in] timeout: Specify timeout. Timespec instance
+  /// \reval > 0 Received size
+  /// \reval ==0 Socket was closed
+  /// \exception LwsockExrepss
+  /// \exception SystemErrorException
   ssize_t recv_fill(int sfd, void* buff, const size_t expect_sz, const Timespec& timeout)
   {
     assert(sfd != -1);
 
-    DECLARE_CALLEE(callee, WSMETHOD, "(sfd=" << sfd << ", buff=" << std::hex << buff << ", expect_sz=" << std::dec << expect_sz << ", timeout=" << timeout.to_string() << ")");
-    alog::scoped slog(LogLevel::DEBUG, callee.str());
+    Callee callee(prefix() + __func__, "(sfd=%d, buff=..., expect_sz=%u, timeout=%s", sfd, expect_sz, timeout.to_str());
+    ALog::Tracer tracer(LogLevel::DEBUG, callee.str());
 
     uint8_t* ptr = static_cast<uint8_t*>(buff);
     size_t recved_sz = 0;
 
-    // if received data when opening handshake is rest, then copy it
-    log_.d() << "    recved_rest_buff.size()=" << recved_rest_buff_.size() << std::endl;
+    // if Received data when opening handshake is rest, then copy it
+    log_.debug() << "    recved_rest_buff.size()=" << recved_rest_buff_.size() << std::endl;
     if (!recved_rest_buff_.empty()) {
       size_t sz = recved_rest_buff_.size();
       if (sz > expect_sz) {
@@ -3206,27 +3691,28 @@ private:
 
     ret = recved_sz == expect_sz ? recved_sz : ret;
 
-    slog.clear() << "WebSocket::recv_fill(sfd=" << sfd << ", ...) result=" << ret;
+    tracer.clear() << "WebSocket::recv_fill(sfd=" << sfd << ", ...) result=" << ret;
     return ret;
   }
 
-  /// @brief receive untill CRLFCRLF. if there is data after CRLFCRLF, save it
+  /// \brief Receive untill CRLFCRLF. if there is data after CRLFCRLF, save it
   ///
-  /// @param [in] sfd: sockfd
-  /// @param [in] timeout: specify timeout. Timespec instance
-  /// @retval received data
-  /// @exception LwsockException, SystemErrorException
+  /// \param [in] sfd: Socket fd
+  /// \param [in] timeout: Specify timeout. Timespec instance
+  /// \retval Received data
+  /// \exception LwsockExrepss
+  /// \exception SystemErrorException
   std::string recv_until_eoh(int sfd, const Timespec& timeout)
   {
     assert(recved_rest_buff_.empty());
 
-    DECLARE_CALLEE(callee, WSMETHOD, "(sfd=" << sfd << ", timeout=" << timeout.to_string() << ")");
-    alog::scoped slog(LogLevel::DEBUG, callee.str());
+    Callee callee(prefix() + __func__, "(sfd=%d, timeout=%s)", sfd, timeout.to_str());
+    ALog::Tracer tracer(LogLevel::DEBUG, callee.str());
 
-    constexpr std::string::size_type NPOS = std::string::npos;
     std::string recved_msg;
 
-    constexpr char EOH[] = "\r\n\r\n"; // end of header
+    constexpr char EOH[] = "\r\n\r\n"; // End of header
+    constexpr std::string::size_type NPOS = std::string::npos;
     std::string::size_type pos = NPOS;
     while ((pos = recved_msg.find(EOH)) == NPOS) {
       char tmp[512] = {0};
@@ -3244,40 +3730,41 @@ private:
       nanosleep(&ts, nullptr);
     }
 
-    constexpr int eohsz = sizeof EOH -1; // end of header size
+    constexpr int eohsz = sizeof EOH -1; // End of header size
     std::string result = recved_msg.substr(0, pos + eohsz); // result data include CRLFCRLF
 
-    // if there is data after crlfcrl, save that data to recved_rest_buff_
+    // If there is data after crlfcrl, save that data to recved_rest_buff_
     if (pos + eohsz < recved_msg.size()) {
       std::copy(std::begin(recved_msg) + pos + eohsz, std::end(recved_msg), std::back_inserter(recved_rest_buff_));
     }
 
-    log_.d() << result << std::endl;
+    log_.debug() << result << std::endl;
 
     return result;
   }
 
-  /// @brief send empty body CLOSE frame.
+  /// \brief Send empty body CLOSE frame.
   ///
-  /// @param [in] timeout: specify timeout. Timespec instance
-  /// this function is when receiving empty body CLOSE frame, then called.
-  /// @exception LwsockException, SystemErrorException
+  /// \param [in] timeout: Specify timeout. Timespec instance
+  /// This function is when receiving empty body CLOSE frame, then called.
+  /// \exception LwsockExrepss
+  /// \exception SystemErrorException
   void send_close(const Timespec& timeout)
   {
-    DECLARE_CALLEE(callee, WSMETHOD, "(timeout=" << timeout.to_string() << ")");
-    alog::scoped slog(LogLevel::DEBUG, callee.str());
+    Callee callee(prefix() + __func__, "(timeout=%s)", timeout.to_str());
+    ALog::Tracer tracer(LogLevel::DEBUG, callee.str());
     send_msg(Opcode::CLOSE, nullptr, 0);
     close_websocket(sfd_, timeout);
   }
 
-  /// @brief split headers
+  /// \brief Split headers
   ///
-  /// @param [in] lines_msg: headers string
-  /// @retval splited headers
+  /// \param [in] lines_msg: Headers string
+  /// \retval Splited headers
   std::vector<std::pair<std::string, std::string>> split_headers(const std::string& lines_msg)
   {
-    DECLARE_CALLEE(callee, WSMETHOD, "(...)");
-    alog::scoped slog(LogLevel::DEBUG, callee.str());
+    Callee callee(prefix() + __func__, "(lines_msg=%s)", lines_msg);
+    ALog::Tracer tracer(LogLevel::DEBUG, callee.str());
 
     using size_type = std::string::size_type;
     constexpr size_type NPOS(std::string::npos);
@@ -3291,27 +3778,27 @@ private:
       size_type p = line.find_first_of(':');
       std::string header_name = line.substr(0, p);
       std::string value = p == NPOS ? "" : trim(line.substr(p+1));
-      log_.d() << "  header_name=\"" << header_name << "\", value=\"" << value << '\"' << std::endl;
+      log_.debug() << "  header_name=\"" << header_name << "\", value=\"" << value << '\"' << std::endl;
       headers.push_back(std::make_pair(std::move(header_name), std::move(value)));
     }
 
     return headers;
   }
 
-  /// @brief check response headers
+  /// \brief Check response headers
   ///
-  /// @param [in] hlines: splited headers
-  /// @exception LwsockException
+  /// \param [in] hlines: Splited headers
+  /// \exception LwsockException
   void check_response_headers(const std::vector<std::pair<std::string, std::string>>& hv_lines)
   {
-    DECLARE_CALLEE(callee, WSMETHOD, "(\n");
-    for (auto& e : hv_lines) {
-      callee << "    " << e.first << ": " << e.second << '\n';
+    Callee callee(prefix() + __func__, "(\n");
+    for (auto& element : hv_lines) {
+      callee << "    " << element.first << ": " << element.second << '\n';
     }
     callee << ")";
-    alog::scoped slog(LogLevel::DEBUG, callee.str());
+    ALog::Tracer tracer(LogLevel::DEBUG, callee.str());
 
-    // check "Upgrade" header
+    // Check "Upgrade" header
     {
       std::string header_name = "Upgrade";
       auto ite = std::find_if(std::begin(hv_lines), std::end(hv_lines), [&header_name](auto& hv){
@@ -3377,24 +3864,23 @@ private:
       }
     }
 
-    slog.clear() << "WebSocket::check_response_headers() ok";
+    tracer.clear() << "WebSocket::check_response_headers() ok";
   }
 
-  /// @brief check request headers
+  /// \brief Check request headers
   ///
-  /// @param [in] hlines: splited headers
-  /// @exception LwsockException
+  /// \param [in] hlines: Splited headers
+  /// \exception LwsockException
   void check_request_headers(const std::vector<std::pair<std::string, std::string>>& hv_lines)
   {
-    DECLARE_CALLEE(callee, WSMETHOD, "(\n");
-    for (auto& e : hv_lines) {
-      callee << "    \"" << e.first << "\": \"" << e.second << "\"\n";
+    Callee callee(prefix() + __func__, "(\n");
+    for (auto& element : hv_lines) {
+      callee << "    \"" << element.first << "\": \"" << element.second << "\"\n";
     }
     callee << ")";
-    alog::scoped slog(LogLevel::DEBUG, callee.str());
-    slog.clear() << WSMETHOD << "(...)";
+    ALog::Tracer tracer(LogLevel::DEBUG, callee.str());
 
-    // check "Host" header existing
+    // Check "Host" header existing
     { auto ite = std::find_if(std::begin(hv_lines), std::end(hv_lines), [](auto& hv){
         if (str2lower(hv.first) == str2lower("Host")) {
           return true;
@@ -3410,7 +3896,7 @@ private:
       }
     }
 
-    // extract values of "Upgrade" header. it header is possible multiple.
+    // Extract values of "Upgrade" header. It header is possible multiple.
     {
       std::vector<std::string> values; // "Upgrade" Header's values
       std::for_each(std::begin(hv_lines), std::end(hv_lines), [&values](auto& hvs){
@@ -3439,7 +3925,7 @@ private:
       }
     }
 
-    // extract values of "Connection" header. it header is possible multiple.
+    // Extract values of "Connection" header. It header is possible multiple.
     {
       std::vector<std::string> values; // "Connection" Header's values
       std::for_each(std::begin(hv_lines), std::end(hv_lines), [&values](auto& hv){
@@ -3469,7 +3955,7 @@ private:
       }
     }
 
-    // search "Sec-WebSocket-Key"
+    // Search "Sec-WebSocket-Key"
     {
       auto sec_websocket_key_line = std::find_if(std::begin(hv_lines), std::end(hv_lines), [](auto& hv){
         if (str2lower(hv.first) == str2lower("Sec-WebSocket-Key")) {
@@ -3484,7 +3970,7 @@ private:
         oss << " \"Sec-WebSocket-Key\" header is not found.";
         throw LwsockException(Error(as_int(LwsockErrc::INVALID_HANDSHAKE), oss.str()));
       }
-      std::vector<uint8_t> value = b64decode(sec_websocket_key_line->second);
+      std::vector<uint8_t> value = Base64::decode(sec_websocket_key_line->second);
       if (value.size() != 16) {
         std::ostringstream oss;
         oss << " \"Sec-WebSocket-Key\" header is invalid size: " << std::to_string(value.size());
@@ -3493,7 +3979,7 @@ private:
       nonce_ = sec_websocket_key_line->second;
     }
 
-    // extract values of "Sec-WebSocket-Version" header. it header is possible multiple.
+    // Extract values of "Sec-WebSocket-Version" header. It header is possible multiple.
     {
       std::vector<std::string> values; // "Sec-WebSocket-Version" Header's values
       std::for_each(std::begin(hv_lines), std::end(hv_lines), [&values](auto& hvs){
@@ -3524,40 +4010,48 @@ private:
     }
   }
 
-  /// @biref make a nonce for a opening handshake
+  /// \biref Make a nonce for a opening handshake
   ///
-  /// @param nonce
+  /// \param nonce
   std::string make_nonce()
   {
+    constexpr static int NONCE_SZ = 16;
     std::mt19937 rd;
     std::uniform_int_distribution<uint64_t> dist(0, 0xffffffffffffffff);
     uint64_t tmp = dist(rd);
-    uint8_t x1[16] = {0};
+    std::array<uint8_t, NONCE_SZ> x1;
+    assert(sizeof tmp < x1.size());
     ::memcpy(&x1[0], &tmp, sizeof tmp);
-    ::memcpy(&x1[8], &Magic[0], (sizeof x1)-8);
-    std::string nonce = b64encode(x1, sizeof x1);
+    ::memcpy(&x1[8], &Magic[0], x1.size()-8);
+    std::string nonce = Base64::encode(x1);
     return nonce;
   }
 
-  /// @brief make a key for a opening handshake
+  /// \brief Make a key for a opening handshake
   ///
-  /// @param key
+  /// \param key
   std::string make_key(const std::string& nonce, const std::string& guid)
   {
     std::string key = nonce + guid;
     Sha1::Context_t ctx;
     Sha1::Input(ctx, key.data(), key.size());
+#if 1
     uint8_t sha1val[Sha1::SHA1_HASH_SIZE] = {0};
     Sha1::Result(sha1val, sizeof sha1val, ctx);
-    std::string b64 = b64encode(sha1val, sizeof sha1val);
+    std::string b64 = Base64::encode(sha1val, sizeof sha1val);
+#else
+    std::array<uint8_t, Sha1::SHA1_HASH_SIZE> sha1val;
+    ~~~
+    ~~~
+#endif
     return b64;
   }
 
-  /// @brief parse a opening handshake message
+  /// \brief Parse a opening handshake message
   ///
-  /// @param [in] received handshake message
-  /// @retval parsed handshake message
-  /// @exception LwsockException
+  /// \param [in] Received handshake message
+  /// \retval Parsed handshake message
+  /// \exception LwsockException
   handshake_t parse_handshake_msg(const std::string& handshake_msg)
   {
     using size_type = std::string::size_type;
@@ -3569,18 +4063,18 @@ private:
       throw LwsockException(Error(err, oss.str()));
     }
     std::string first_line = handshake_msg.substr(0, pos);
-    size_type headers_start_pos = pos + (sizeof EOL -1); // -1 is '\0'
+    size_type headers_start_pos = pos + (sizeof EOL -1); // -1 is for '\0'
     headers_t headers = split_headers(handshake_msg.substr(headers_start_pos));
 
     return handshake_t{first_line, headers};
   }
 
-  /// @brief mask data
+  /// \brief Mask data
   ///
-  /// @param [in] src: data pointer
-  /// @param [in] src_sz: data size. bytes
-  /// @param [in] masking_key: masking key
-  /// @retval masked data
+  /// \param [in] src: Data pointer
+  /// \param [in] src_sz: Data size. Bytes
+  /// \param [in] masking_key: Masking key
+  /// \retval Masked data
   std::vector<uint8_t> mask_data(const void* src, size_t src_sz, uint32_t masking_key)
   {
     std::vector<uint8_t> masked_data(src_sz);
@@ -3594,7 +4088,10 @@ private:
     return masked_data;
   }
 
-  alog& log_ = alog::get_instance();
+  constexpr static char GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+  constexpr static char EOL[] = "\r\n"; // End Of Line
+
+  ALog& log_ = ALog::get_instance();
   Mode mode_ = Mode::NONE;
   int sfd_ = -1;
   std::vector<int> bind_sfds_;

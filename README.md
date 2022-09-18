@@ -4,29 +4,29 @@
 * L: a Library, WSOCK: WebSocket
 * This API is like traditional BSD Socket API for TCP client / server. (connect, bind, listen, accept, send, recv)
 * IPv6 ready
-* not depend on other libraries. (futuer maybe depend on openssl or libressl etc)
+* not depend on other libraries. (In the future, some sort of TLS library will be used.)
 * You must control about multiple IO, thread etc by yourself.
 * lwsock doesn't management status (CONNECTING, OPEN, CLOSING, CLOSED etc). You must do it yourself.
 * Document: https://github.com/hfuj13/lwsock/wiki
 
 ## Require
 
-* C++14 or later
+* C++17 or later
 * Linux
 * C++ Exception (-fexceptions etc.)
 * Little Endian
 
-## Tester building
+## Tester building and running
 
 ```
-$ tar xf googletest-release-1.8.0.tar.gz
+$ tar xf googletest-release-1.12.1.tar.gz
 $ cd test
-$ ln -s ../googletest-release-1.8.0/googletest/include ./
-$ ln -s ../googletest-release-1.8.0/googletest/src ./
-$ mkdir build
-$ cd build
-$ cmake ../
+$ ln -s ../googletest-release-1.12.1/googletest/include ./
+$ ln -s ../googletest-release-1.12.1/googletest/src ./
+$ cmake -S . -B build
+$ cd buld
 $ make
+$ ./lwsock_test
 ```
 
 ## NOTE
@@ -42,13 +42,22 @@ $ make
 
 ## For example
 
-### server side:
+### Server side:
 
 ```
   void worker(lwsock::WebSocket&& nws)
   {
     auto hs = nws.recv_req(); // returned handshake data
+    auto path = nws.path()
+    auto query = nws.query()
+
+    // ... Process according to the path or the query ....
+
     nws.send_res();
+    // Use the following APIs as needed.
+    //   std::string send_res(const headers_t& otherheaders)
+    //   std::string send_res_manually(const handshake_t& handshake)
+
     std::string msg = "d e f";
     nws.send_msg_txt(msg);
     auto rcvd = nws.recv_msg_txt();
@@ -59,7 +68,7 @@ $ make
   lwsock::WebSocket s(lwsock::WebSocket::Mode::SERVER);
   //s.ostream4log(cout);
   s.bind("ws://hostname:22000");
-  //s.bind("ws://0.0.0.0:22000"); // IPv4 any address
+  //s.bind("ws://0.0.0.0:22000"); // IPv4 only any address
   //s.bind("ws://[::]:22000"); // IPv6 only any address
   //s.bind("ws://[::].0.0.0.0:22000"); // IPv4 and IPv6 any address
   s.listen(5);
@@ -74,7 +83,7 @@ $ make
   }
 ```
 
-### client side:
+### Client side:
 
 ```
   lwsock::WebSocket c(lwsock::WebSocket::Mode::CLIENT);
@@ -95,4 +104,5 @@ $ make
 * Organizing codes.
 * Revise sample.
 * Correspond to TLS.
-* Make files separable.
+* Separate lwsock.hpp
+* Division of a single header file into multiple header files.

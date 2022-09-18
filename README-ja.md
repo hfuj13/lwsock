@@ -4,29 +4,29 @@
 * L: ライブラリ、WSOCK: WebSocket を意味します。
 * このAPIは伝統的なTCPクライアント/サーバー用のBSD Socket APIに似ています。(connect, bind, listen, accept, send, recv)
 * IPv6 対応。
-* 他のライブラリに依存していません。(futuer maybe depend on openssl or libressl etc)
+* 他のライブラリに依存していません。(将来的には何らかのTLSライブラリが利用されるでしょう)
 * スレッド等の多重化IOは利用者自身で制御する必要があります。
 * lwsockは状態管理をしません(CONNECTING, OPEN, CLOSING, CLOSED等)。必要なら利用者自身で管理して下さい。
 * ドキュメント: https://github.com/hfuj13/lwsock/wiki
 
 ## 要件:
 
-* C++14以降
+* C++17以降
 * Linux
 * C++例外機能 (-fexceptions等)
 * リトルエンディアン
 
-## テスターのビルド
+## テスターのビルドと実行
 
 ```
-$ tar xf googletest-release-1.8.0.tar.gz
+$ tar xf googletest-release-1.12.1.tar.gz
 $ cd test
-$ ln -s ../googletest-release-1.8.0/googletest/include ./
-$ ln -s ../googletest-release-1.8.0/googletest/src ./
-$ mkdir build
-$ cd build
-$ cmake ../
+$ ln -s ../googletest-release-1.12.1/googletest/include ./
+$ ln -s ../googletest-release-1.12.1/googletest/src ./
+$ cmake -S . -B build
+$ cd test
 $ make
+$ ./lwsock_test
 ```
 
 ## 注
@@ -48,7 +48,16 @@ $ make
   void worker(lwsock::WebSocket&& nws)
   {
     auto hs = nws.recv_req(); // returned handshake data
+    auto path = nws.path()
+    auto query = nws.query()
+
+    // ... Process according to the path or the query ....
+
     nws.send_res();
+    // Use the following APIs as needed.
+    //   std::string send_res(const headers_t& otherheaders)
+    //   std::string send_res_manually(const handshake_t& handshake)
+
     std::string msg = "d e f";
     nws.send_msg_txt(msg);
     auto rcvd = nws.recv_msg_txt();
@@ -59,7 +68,7 @@ $ make
   lwsock::WebSocket s(lwsock::WebSocket::Mode::SERVER);
   //s.ostream4log(cout);
   s.bind("ws://hostname:22000");
-  //s.bind("ws://0.0.0.0:22000"); // IPv4 any address
+  //s.bind("ws://0.0.0.0:22000"); // IPv4 only any address
   //s.bind("ws://[::]:22000"); // IPv6 only any address
   //s.bind("ws://[::].0.0.0.0:22000"); // IPv4 and IPv6 any address
   s.listen(5);
@@ -94,5 +103,5 @@ $ make
 * ログの最適化
 * コードの整理
 * サンプルの改訂
-* TLSサポート
-* ソースファイルの分割
+* TLS対応
+* 1つのヘッダーファイルから複数のヘッダーファイルに分割

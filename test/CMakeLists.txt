@@ -1,38 +1,27 @@
-cmake_minimum_required(VERSION 3.0.2)
-SET(CMAKE_CXX_COMPILER /usr/bin/g++)
-#SET(CMAKE_CXX_COMPILER /usr/bin/clang++)
-#SET(CMAKE_CXX_COMPILER /usr/bin/clang++-11)
-add_definitions("-g -Wall -std=c++14 -pthread")
-include_directories(..)
-include_directories(.)
-include_directories(include)
-
+cmake_minimum_required(VERSION 3.18)
+project(LWSOCK_TEST)
 add_executable(
-  testest
+  lwsock_test
+
   src/gtest-all.cc
-  testest.cc
-  version_test.cc
-  base64_test.cc
-  sha1_test.cc
-  uri_parse_test.cc
-  str2lower_test.cc
-  ahead_test.cc
-  first_line_parse_test.cc
-  is_numerichost_test.cc
-  split_host_port_test.cc
-)
-target_link_libraries(testest pthread)
+  lwsock_test.cc
 
-# test client
-add_executable(
-  ctest
-  ctest.cc
+  test_version.cc
+  test_base64.cc
+  test_sha1.cc
+  test_is_numerichost.cc
+  test_split_host_port.cc
+  test_split_path_query.cc
+  test_1st_line_parse.cc
+  test_uri_parse.cc
+  test_ahead.cc
+  test_callee.cc
+  test_alog.cc
+  test_client_server.cc
 )
-target_link_libraries(ctest pthread)
-
-# test server
-add_executable(
-  stest
-  stest.cc
-)
-target_link_libraries(stest pthread)
+include_directories(. .. include)
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+target_compile_features(lwsock_test PUBLIC cxx_std_17)
+add_compile_options("-g -Wall -Wextra -fexceptions")
+target_link_libraries(lwsock_test pthread)
